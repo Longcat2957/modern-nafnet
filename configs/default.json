@@ -1,0 +1,74 @@
+{
+  "model": {
+    "img_channel": 3,
+    "width": 32,
+    "enc_blk_nums": [
+      1,
+      1,
+      1,
+      28
+    ],
+    "middle_blk_num": 1,
+    "dec_blk_nums": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "train_size": [
+      1,
+      3,
+      256,
+      256
+    ],
+    "fast_imp": false
+  },
+  "data": {
+    "train_manifest": null,
+    "calibration_manifest": null,
+    "crop_size": 256
+  },
+  "training": {
+    "checkpoint": null,
+    "resume": null,
+    "output_dir": "artifacts/train",
+    "steps": 1000,
+    "batch_size": 1,
+    "lr": 0.0001,
+    "seed": 42,
+    "num_workers": 0,
+    "device": "cuda",
+    "amp": false
+  },
+  "quantization": {
+    "checkpoint": null,
+    "calibration_batches": 32
+  },
+  "export": {
+    "checkpoint": null,
+    "output": "artifacts/model.onnx",
+    "shape": null,
+    "opset": 18,
+    "quantized": false,
+    "device": "cuda"
+  },
+  "inference": {
+    "checkpoint": null,
+    "input": null,
+    "output": "artifacts/restored.png",
+    "device": "cuda",
+    "quantized": false
+  },
+  "evaluation": {
+    "checkpoint": null,
+    "manifest": null,
+    "output": "artifacts/evaluation.json",
+    "device": "cuda",
+    "quantized": false
+  },
+  "benchmark": {
+    "input_size": null,
+    "target_fps": null,
+    "power_mode": null
+  }
+}
