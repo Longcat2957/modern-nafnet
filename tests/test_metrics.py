@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from drone_deblur.evaluation.metrics import calculate_psnr, evaluate_image
+from modern_nafnet.evaluation.metrics import calculate_psnr, evaluate_image
 
 
 def _metric_fixture():

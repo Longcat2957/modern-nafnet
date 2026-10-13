@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 
 import torch
 
-from drone_deblur.artifacts import environment_manifest, sha256, write_json
+from modern_nafnet.artifacts import environment_manifest, sha256, write_json
 
 
 def export_model(
@@ -33,7 +33,7 @@ def export_model(
     if opset < 13:
         raise ValueError("ONNX export needs opset >= 13")
     if quantized:
-        from drone_deblur.training.quantize import check_int8_convs
+        from modern_nafnet.training.quantize import check_int8_convs
 
         check_int8_convs(model)
     model = model.to(device).float().eval()
@@ -80,7 +80,7 @@ def export_model(
 
 
 def run_export(config: dict) -> dict:
-    from drone_deblur.models.nafnet import (
+    from modern_nafnet.models.nafnet import (
         NAFNetLocal,
         check_checkpoint_metadata,
         load_checkpoint,
@@ -101,7 +101,7 @@ def run_export(config: dict) -> dict:
         raise FileExistsError(f"Export manifest already exists; choose a new path: {manifest}")
     model = NAFNetLocal(**config.get("model", {}))
     if settings.get("quantized", False):
-        from drone_deblur.training.quantize import restore_quantized_model
+        from modern_nafnet.training.quantize import restore_quantized_model
 
         checkpoint = torch.load(settings["checkpoint"], map_location="cpu", weights_only=True)
         check_checkpoint_metadata(model, checkpoint, config.get("model", {}))

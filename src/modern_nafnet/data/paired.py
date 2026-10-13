@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from drone_deblur.data.images import read_rgb
+from modern_nafnet.data.images import read_rgb
 
 
 def load_manifest(manifest: str | Path, *, allow_sharp_only: bool = False) -> list[dict[str, Any]]:

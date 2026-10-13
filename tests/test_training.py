@@ -9,15 +9,15 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("albumentations")
 
-from drone_deblur.config import DEFAULT_CONFIG
-from drone_deblur.data.augment import build_blur_transform, build_train_transform
-from drone_deblur.data.images import write_rgb
-from drone_deblur.training.loop import restore_rng, rng_state, run_train
+from modern_nafnet.config import DEFAULT_CONFIG
+from modern_nafnet.data.augment import build_blur_transform, build_train_transform
+from modern_nafnet.data.images import write_rgb
+from modern_nafnet.training.loop import restore_rng, rng_state, run_train
 
 
 @pytest.fixture
 def training_case(tmp_path, monkeypatch):
-    from drone_deblur.models import nafnet
+    from modern_nafnet.models import nafnet
 
     def factory(**kwargs):
         return torch.nn.Conv2d(3, 3, 1)
@@ -55,7 +55,7 @@ def test_fp32_training_checkpoint_is_safe_and_contains_training_state(training_c
 def test_ptq_and_qat_save_exportable_modelopt_checkpoints(training_case, steps):
     pytest.importorskip("modelopt")
     pytest.importorskip("onnx")
-    from drone_deblur.deployment.export import run_export
+    from modern_nafnet.deployment.export import run_export
 
     source = Path(training_case["training"]["checkpoint"])
     calibration = source.parent / "calibration.json"
@@ -101,7 +101,7 @@ def test_partial_epoch_export_checkpoint_cannot_claim_exact_resume(training_case
 
 @pytest.mark.parametrize("synthetic", [False, True])
 def test_epoch_checkpoint_survives_failure_and_resumes(training_case, monkeypatch, synthetic):
-    from drone_deblur.training import losses
+    from modern_nafnet.training import losses
 
     original = losses.PSNRLoss
 

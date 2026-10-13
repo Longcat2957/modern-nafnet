@@ -1,5 +1,5 @@
 [project]
-name = "drone-deblur"
+name = "modern-nafnet"
 version = "0.1.0"
 description = "NAFNet deblurring training and ONNX deployment tools"
 readme = "README.md"
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-drone-deblur = "drone_deblur.cli:main"
+modern-nafnet = "modern_nafnet.cli:main"
 
 [project.optional-dependencies]
 train = [

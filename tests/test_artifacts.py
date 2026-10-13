@@ -1,7 +1,7 @@
 import hashlib
 import json
 
-from drone_deblur.artifacts import sha256, write_json
+from modern_nafnet.artifacts import sha256, write_json
 
 
 def test_hash_and_standard_json(tmp_path):
@@ -15,7 +15,7 @@ def test_hash_and_standard_json(tmp_path):
 
 
 def test_gpu_metadata_timeout_does_not_abort_artifact_recording(monkeypatch):
-    from drone_deblur import artifacts
+    from modern_nafnet import artifacts
 
     monkeypatch.setattr(artifacts.shutil, "which", lambda name: "/mock/nvidia-smi")
 

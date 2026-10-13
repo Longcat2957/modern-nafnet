@@ -5,8 +5,8 @@ import sys
 import pytest
 from typer.testing import CliRunner
 
-from drone_deblur.cli import app
-from drone_deblur.config import load_config
+from modern_nafnet.cli import app
+from modern_nafnet.config import load_config
 
 runner = CliRunner()
 
@@ -14,7 +14,7 @@ runner = CliRunner()
 @pytest.mark.parametrize("command", [[], ["train"], ["qat"], ["export"], ["infer"], ["eval"]])
 def test_help_without_ml_imports(command):
     code = (
-        "import sys; from typer.testing import CliRunner; from drone_deblur.cli import app; "
+        "import sys; from typer.testing import CliRunner; from modern_nafnet.cli import app; "
         f"r = CliRunner().invoke(app, {command + ['--help']!r}); "
         "assert r.exit_code == 0, r.output; "
         "assert not {'torch', 'modelopt', 'albumentations', 'onnx'}.intersection(sys.modules)"
@@ -25,9 +25,9 @@ def test_help_without_ml_imports(command):
 def test_cli_false_and_steps_override(monkeypatch):
     import types
 
-    stub = types.ModuleType("drone_deblur.training.loop")
+    stub = types.ModuleType("modern_nafnet.training.loop")
     stub.run_train = lambda config, **kwargs: config["training"]
-    monkeypatch.setitem(sys.modules, "drone_deblur.training.loop", stub)
+    monkeypatch.setitem(sys.modules, "modern_nafnet.training.loop", stub)
     result = runner.invoke(app, ["train", "--steps", "2", "--no-amp"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["amp"] is False
@@ -43,14 +43,14 @@ def test_bad_argument():
 def test_workflow_status_does_not_corrupt_json_stdout(monkeypatch):
     import types
 
-    stub = types.ModuleType("drone_deblur.training.loop")
+    stub = types.ModuleType("modern_nafnet.training.loop")
 
     def operation(config):
         print("library status")
         return {"step": 1}
 
     stub.run_train = operation
-    monkeypatch.setitem(sys.modules, "drone_deblur.training.loop", stub)
+    monkeypatch.setitem(sys.modules, "modern_nafnet.training.loop", stub)
     result = runner.invoke(app, ["train"])
     assert result.exit_code == 0
     assert json.loads(result.stdout) == {"step": 1}
@@ -64,9 +64,9 @@ def test_qat_cli_checkpoint_overrides_quantization_source(tmp_path, monkeypatch)
     source.write_bytes(b"fixture")
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"quantization": {"checkpoint": "configured.pt"}}))
-    stub = types.ModuleType("drone_deblur.training.loop")
+    stub = types.ModuleType("modern_nafnet.training.loop")
     stub.run_train = lambda config, **kwargs: config["quantization"]
-    monkeypatch.setitem(sys.modules, "drone_deblur.training.loop", stub)
+    monkeypatch.setitem(sys.modules, "modern_nafnet.training.loop", stub)
     result = runner.invoke(app, ["qat", "--config", str(path), "--checkpoint", str(source)])
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["checkpoint"] == str(source)
@@ -87,9 +87,9 @@ def test_synthetic_blur_and_zero_workers_override_json(
             {"data": {"synthetic_blur": {"enabled": not enabled}}, "training": {"num_workers": 3}}
         )
     )
-    stub = types.ModuleType("drone_deblur.training.loop")
+    stub = types.ModuleType("modern_nafnet.training.loop")
     stub.run_train = lambda config, **kwargs: config
-    monkeypatch.setitem(sys.modules, "drone_deblur.training.loop", stub)
+    monkeypatch.setitem(sys.modules, "modern_nafnet.training.loop", stub)
     result = runner.invoke(app, [command, "--config", str(path), flag, "--num-workers", "0"])
     assert result.exit_code == 0, result.output
     config = json.loads(result.stdout)
@@ -100,13 +100,13 @@ def test_synthetic_blur_and_zero_workers_override_json(
 def test_missing_dependency_reports_profile_on_stderr(monkeypatch):
     import types
 
-    stub = types.ModuleType("drone_deblur.training.loop")
+    stub = types.ModuleType("modern_nafnet.training.loop")
 
     def missing(*args, **kwargs):
         raise ModuleNotFoundError("No module named 'torch'", name="torch")
 
     stub.run_train = missing
-    monkeypatch.setitem(sys.modules, "drone_deblur.training.loop", stub)
+    monkeypatch.setitem(sys.modules, "modern_nafnet.training.loop", stub)
     result = runner.invoke(app, ["train"])
     assert result.exit_code == 1
     assert "--extra train" in result.stderr
@@ -157,7 +157,7 @@ def test_json_configuration_rejects_wrong_leaf_types(tmp_path, document):
 def test_default_json_matches_defaults():
     from pathlib import Path
 
-    from drone_deblur.config import DEFAULT_CONFIG
+    from modern_nafnet.config import DEFAULT_CONFIG
 
     path = Path(__file__).parents[1] / "configs/default.json"
     assert json.loads(path.read_text()) == DEFAULT_CONFIG

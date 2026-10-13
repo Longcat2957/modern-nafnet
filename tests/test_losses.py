@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from drone_deblur.training.losses import PSNRLoss
+from modern_nafnet.training.losses import PSNRLoss
 
 
 def test_psnr_loss_averages_imagewise_and_has_finite_gradient():

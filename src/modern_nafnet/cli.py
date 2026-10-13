@@ -9,8 +9,8 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from drone_deblur.artifacts import json_safe
-from drone_deblur.config import load_config
+from modern_nafnet.artifacts import json_safe
+from modern_nafnet.config import load_config
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 console = Console(stderr=True)
@@ -39,7 +39,7 @@ def _run(operation, extra: str):
         }:
             raise
         console.print(
-            f"Missing {exc.name}. Run with uv run --locked {extra} drone-deblur ...",
+            f"Missing {exc.name}. Run with uv run --locked {extra} modern-nafnet ...",
             style="red",
             markup=False,
         )
@@ -65,7 +65,7 @@ def train(
     """Fine-tune a floating point model using paired images."""
 
     def execute():
-        from drone_deblur.training.loop import run_train
+        from modern_nafnet.training.loop import run_train
 
         settings = load_config(
             config,
@@ -101,7 +101,7 @@ def qat(
     """Calibrate INT8 and fine-tune; --steps 0 saves a PTQ checkpoint."""
 
     def execute():
-        from drone_deblur.training.loop import run_train
+        from modern_nafnet.training.loop import run_train
 
         settings = load_config(
             config,
@@ -135,7 +135,7 @@ def export_model(
     """Export a fixed batch-one FP or explicit INT8 Q/DQ ONNX model."""
 
     def execute():
-        from drone_deblur.deployment.export import run_export
+        from modern_nafnet.deployment.export import run_export
 
         if (height is None) != (width is None):
             raise ValueError("Specify both --height and --width")
@@ -168,7 +168,7 @@ def infer(
     """Restore one RGB image using a PyTorch checkpoint."""
 
     def execute():
-        from drone_deblur.inference import run_infer
+        from modern_nafnet.inference import run_infer
 
         settings = load_config(
             config,
@@ -199,7 +199,7 @@ def evaluate(
     """Evaluate paired images using the official uint8 GoPro protocol."""
 
     def execute():
-        from drone_deblur.evaluation.quality import run_evaluate
+        from modern_nafnet.evaluation.quality import run_evaluate
 
         settings = load_config(
             config,

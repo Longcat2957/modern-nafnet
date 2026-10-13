@@ -5,9 +5,9 @@ import numpy as np
 import pytest
 import torch
 
-from drone_deblur.data.augment import build_blur_transform, build_train_transform
-from drone_deblur.data.images import read_rgb, rgb_to_uint8, write_rgb
-from drone_deblur.data.paired import PairedImageDataset, init_data_worker
+from modern_nafnet.data.augment import build_blur_transform, build_train_transform
+from modern_nafnet.data.images import read_rgb, rgb_to_uint8, write_rgb
+from modern_nafnet.data.paired import PairedImageDataset, init_data_worker
 
 
 def _manifest(tmp_path, blur, sharp):
@@ -83,7 +83,7 @@ def test_reject_invalid_crop_and_duplicate_names(tmp_path):
 
 
 def test_sharp_only_blur_is_seeded_crop_first_and_preserves_gt(tmp_path, monkeypatch):
-    from drone_deblur.data import paired
+    from modern_nafnet.data import paired
 
     sharp = np.random.default_rng(4).integers(0, 256, (40, 48, 3), dtype=np.uint8)
     write_rgb(tmp_path / "sharp.png", sharp)

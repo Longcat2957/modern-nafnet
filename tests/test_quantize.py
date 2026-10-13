@@ -4,7 +4,7 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("modelopt")
 
-from drone_deblur.training.quantize import (
+from modern_nafnet.training.quantize import (
     calibrate_int8,
     check_int8_convs,
     modelopt_state,
@@ -55,7 +55,7 @@ def test_empty_calibration_is_rejected():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device is unavailable")
 def test_nafnet_cuda_calibration_and_qat_backward():
-    from drone_deblur.models.nafnet import NAFNetLocal
+    from modern_nafnet.models.nafnet import NAFNetLocal
 
     torch.manual_seed(21)
     model = NAFNetLocal(

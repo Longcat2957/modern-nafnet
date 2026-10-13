@@ -4,11 +4,11 @@ from pathlib import Path
 
 import torch
 
-from drone_deblur.artifacts import environment_manifest, sha256, write_json
-from drone_deblur.data.images import rgb_to_uint8
-from drone_deblur.data.paired import PairedImageDataset
-from drone_deblur.evaluation.metrics import evaluate_image
-from drone_deblur.inference import load_inference_model
+from modern_nafnet.artifacts import environment_manifest, sha256, write_json
+from modern_nafnet.data.images import rgb_to_uint8
+from modern_nafnet.data.paired import PairedImageDataset
+from modern_nafnet.evaluation.metrics import evaluate_image
+from modern_nafnet.inference import load_inference_model
 
 
 @torch.inference_mode()

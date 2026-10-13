@@ -45,7 +45,7 @@ def write_json(path: Path | str, value: dict) -> None:
 def environment_manifest() -> dict:
     packages = {}
     for name in (
-        "drone-deblur",
+        "modern-nafnet",
         "numpy",
         "opencv-python-headless",
         "typer",

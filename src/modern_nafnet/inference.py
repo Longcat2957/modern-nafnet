@@ -5,9 +5,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from drone_deblur.artifacts import environment_manifest, sha256, write_json
-from drone_deblur.data.images import read_rgb, write_rgb
-from drone_deblur.models.nafnet import build_model, check_checkpoint_metadata, load_checkpoint
+from modern_nafnet.artifacts import environment_manifest, sha256, write_json
+from modern_nafnet.data.images import read_rgb, write_rgb
+from modern_nafnet.models.nafnet import build_model, check_checkpoint_metadata, load_checkpoint
 
 
 def load_inference_model(config: dict, section: str):
@@ -20,7 +20,7 @@ def load_inference_model(config: dict, section: str):
         raise ValueError("CUDA is unavailable; use --device cpu or check the CUDA wheel/driver")
     model = build_model(config["model"])
     if settings.get("quantized", False):
-        from drone_deblur.training.quantize import restore_quantized_model
+        from modern_nafnet.training.quantize import restore_quantized_model
 
         payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
         model = restore_quantized_model(model, payload)

@@ -120,7 +120,7 @@ def calibrate_int8(model: torch.nn.Module, inputs) -> torch.nn.Module:
 
 def calibration_inputs(manifest: str | Path, shape: list[int], device: str, limit: int):
     """Read blur-only or paired manifests without changing their image geometry."""
-    from drone_deblur.data.images import read_rgb
+    from modern_nafnet.data.images import read_rgb
 
     if len(shape) != 4 or shape[:2] != [1, 3] or any(size <= 0 for size in shape):
         raise ValueError("Calibration shape must be [1, 3, height, width]")

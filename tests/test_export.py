@@ -6,7 +6,7 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("onnx")
 ort = pytest.importorskip("onnxruntime")
 
-from drone_deblur.deployment.export import export_model, run_export
+from modern_nafnet.deployment.export import export_model, run_export
 
 
 @pytest.mark.parametrize("quantized", [False, True])
@@ -16,7 +16,7 @@ def test_fixed_onnx_output_matches_pytorch(tmp_path, quantized):
     image = torch.rand(1, 3, 8, 8)
     if quantized:
         pytest.importorskip("modelopt")
-        from drone_deblur.training.quantize import calibrate_int8
+        from modern_nafnet.training.quantize import calibrate_int8
 
         model = calibrate_int8(model, [image])
     else:
@@ -70,7 +70,7 @@ def test_existing_export_is_preserved(tmp_path):
 @pytest.mark.parametrize("quantized", [False, True])
 @pytest.mark.parametrize("height,width", [(8, 8), (17, 19)])
 def test_nafnet_tlc_global_and_local_onnx_outputs(tmp_path, quantized, height, width):
-    from drone_deblur.models.nafnet import NAFNetLocal
+    from modern_nafnet.models.nafnet import NAFNetLocal
 
     torch.manual_seed(19)
     model = NAFNetLocal(
@@ -87,7 +87,7 @@ def test_nafnet_tlc_global_and_local_onnx_outputs(tmp_path, quantized, height, w
     image = torch.rand(1, 3, height, width)
     if quantized:
         pytest.importorskip("modelopt")
-        from drone_deblur.training.quantize import calibrate_int8
+        from modern_nafnet.training.quantize import calibrate_int8
 
         model = calibrate_int8(model, [image])
     result = export_model(

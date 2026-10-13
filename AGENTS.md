@@ -23,7 +23,7 @@
 
 ## 계층화한 최소 프로젝트 스캐폴드
 
-리포별로 아래 구조를 만들고 필요한 모듈만 구현한다. `uv init --package --name drone-deblur`를 출발점으로 삼으며, 기존 파일은 보존한다.
+리포별로 아래 구조를 만들고 필요한 모듈만 구현한다. `uv init --package --name modern-nafnet`를 출발점으로 삼으며, 기존 파일은 보존한다.
 
 ```text
 .
@@ -37,7 +37,7 @@
 ├── .python-version
 ├── .gitignore
 ├── configs/default.json
-├── src/drone_deblur/
+├── src/modern_nafnet/
 │   ├── __init__.py
 │   ├── cli.py                # Typer app·얇은 명령·main()
 │   ├── config.py             # stdlib JSON 설정·검증·경로 처리
@@ -74,10 +74,10 @@
 - `images.py`, 설정·metadata, TensorRT 실행 경로에는 torch import를 넣지 않는다. PyTorch tensor 변환은 `paired.py` 또는 PyTorch workflow에서 수행한다. `deployment/export.py`의 torch 의존성이 TensorRT runtime으로 전파되지 않게 한다.
 - Albumentations import와 학습용 Compose 구성은 `data/augment.py`에 둔다. `images.py`, 패키지 import, CLI help, TensorRT runtime은 증강 패키지를 요구하지 않는다.
 - `training/loop.py`는 준비된 모델을 학습하며 ModelOpt를 직접 import하지 않는다. calibration·양자화 변환은 `quantize.py`에서 준비해 FP32 학습이 QAT extra를 요구하지 않게 한다.
-- `pyproject.toml`의 CLI entry point는 `drone-deblur = "drone_deblur.cli:main"`으로 둔다. `main()`은 Typer app을 호출하며 `@app.command()`로 x86의 `train/qat/export/infer/eval`을 필요한 순서대로 등록한다. Orin은 우선 네이티브 `trtexec` 명령을 README에 남기며, 자체 runner가 필요한 경우에만 `build/infer/bench`를 확장한다. 루트 callback을 두어 명령이 하나인 초기 단계에도 `drone-deblur infer` 형태를 유지한다. `uv run --locked drone-deblur --help`로 진입한다.
+- `pyproject.toml`의 CLI entry point는 `modern-nafnet = "modern_nafnet.cli:main"`으로 둔다. `main()`은 Typer app을 호출하며 `@app.command()`로 x86의 `train/qat/export/infer/eval`을 필요한 순서대로 등록한다. Orin은 우선 네이티브 `trtexec` 명령을 README에 남기며, 자체 runner가 필요한 경우에만 `build/infer/bench`를 확장한다. 루트 callback을 두어 명령이 하나인 초기 단계에도 `modern-nafnet infer` 형태를 유지한다. `uv run --locked modern-nafnet --help`로 진입한다.
 - Typer의 type hint·`Annotated`·`Path` 등으로 인자/옵션과 기본 경로 검증을 선언한다. 명령 함수는 CLI 타입을 실행 설정으로 연결하는 얇은 경계로 유지하며 모델·학습·평가 함수에는 Typer 의존성을 전파하지 않는다. `no_args_is_help=True`, `pretty_exceptions_show_locals=False`를 사용한다. SDK import·설정 읽기·데이터 확인은 실제 명령 실행에서 수행한다.
 - `configs/default.json`에 데이터·모델·학습·양자화·export·runtime·평가·benchmark 설정을 둔다. JSON을 override하는 CLI 옵션의 미지정 기본값은 `None`으로 두고 `None`이 아닌 값만 병합한다. `bool | None`으로 미지정과 명시적 `False`를 구분하고 `0`/`False`를 truthiness로 누락하지 않는다. 상대 경로의 기준을 문서화하며 해상도·FPS·전력 모드의 미정 값은 `null`로 둔다.
-- 개발 도구는 uv의 `dev` dependency group으로 관리한다. `.gitignore`에는 `/.venv/`, `/data/`, `/artifacts/`로 저장소 루트의 작업 산출물만 제외한다. `data/` 패턴으로 `src/drone_deblur/data/` 패키지까지 제외하지 않는다. 테스트 파일은 해당 단계의 검증에 필요한 경우에만 추가한다.
+- 개발 도구는 uv의 `dev` dependency group으로 관리한다. `.gitignore`에는 `/.venv/`, `/data/`, `/artifacts/`로 저장소 루트의 작업 산출물만 제외한다. `data/` 패턴으로 `src/modern_nafnet/data/` 패키지까지 제외하지 않는다. 테스트 파일은 해당 단계의 검증에 필요한 경우에만 추가한다.
 
 ## 라이브러리 선정과 의존성 프로필
 
@@ -92,7 +92,7 @@
 | legacy `albumentations` | 2.0.8, MIT, 공식 리포 archived | 유지보수되는 X를 선택하며 같은 import namespace의 동시 설치 금지 |
 | `albumentationsx[headless]` | 2.5.1, AGPL-3.0-only, Python >=3.11·NumPy >=2.2.6 | **학습/QAT 필수**; import는 `albumentations as A` |
 
-- 기본 실행 의존성은 NumPy·OpenCV headless·Typer·Rich로 둔다. 선택 프로필은 `train`(torch·albumentationsx[headless]), `qat`(torch·nvidia-modelopt·albumentationsx[headless]), `export`(torch·ONNX 및 선택 exporter가 요구하는 패키지), `metrics`(torchmetrics)로 구분한다. `trt`(대상 SDK 호환 TensorRT/CUDA 바인딩)는 Python runner를 구현할 때만 추가하고, 초기에는 전체 프로젝트의 aarch64 의존성 해결을 요구하지 않는다. Albumentations는 train/QAT 내부에서 필수이며 NumPy 자체 증강으로 우회하지 않는다. `pytest`·`ruff`는 `dev` group에 둔다. 예: `uv run --locked --extra train drone-deblur train ...`.
+- 기본 실행 의존성은 NumPy·OpenCV headless·Typer·Rich로 둔다. 선택 프로필은 `train`(torch·albumentationsx[headless]), `qat`(torch·nvidia-modelopt·albumentationsx[headless]), `export`(torch·ONNX 및 선택 exporter가 요구하는 패키지), `metrics`(torchmetrics)로 구분한다. `trt`(대상 SDK 호환 TensorRT/CUDA 바인딩)는 Python runner를 구현할 때만 추가하고, 초기에는 전체 프로젝트의 aarch64 의존성 해결을 요구하지 않는다. Albumentations는 train/QAT 내부에서 필수이며 NumPy 자체 증강으로 우회하지 않는다. `pytest`·`ruff`는 `dev` group에 둔다. 예: `uv run --locked --extra train modern-nafnet train ...`.
 - Typer와 직접 사용하는 Rich를 프로젝트 의존성으로 선언한다. Typer 자체 command/testing API를 사용하고 외부 Click이나 Typer 내부 `_click`을 직접 사용하는 의존성을 추가하지 않는다. 선택 extra 누락은 실행 시 필요한 프로필과 명령을 안내하고 nonzero 종료한다. [Typer metadata](https://pypi.org/project/typer/), [command/callback](https://typer.tiangolo.com/tutorial/commands/callback/)
 - 부동소수점 ONNX export는 `--extra export`, ModelOpt 구조·quantizer 상태를 복원하는 Q/DQ export는 `--extra export --extra qat`로 실행한다. 부동소수점 export가 ModelOpt를 import하지 않게 한다.
 - TorchMetrics의 PSNR/SSIM에는 PyTorch Lightning과 `torchmetrics[image]`/torchvision을 자동 도입하지 않는다. 설정 처리는 stdlib로 시작한다. ModelOpt 자체의 전이 의존성과 프로젝트가 직접 사용하는 의존성을 구분하고, 필요 없이 ModelOpt `[all]`/`[hf]`를 설치하지 않는다.

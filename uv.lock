@@ -339,78 +339,6 @@ nvtx = [
 ]
 
 [[package]]
-name = "drone-deblur"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "numpy" },
-    { name = "opencv-python-headless" },
-    { name = "rich" },
-    { name = "typer" },
-]
-
-[package.optional-dependencies]
-export = [
-    { name = "onnx" },
-    { name = "onnxscript" },
-    { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'linux'" },
-    { name = "torch", version = "2.14.1+cu132", source = { registry = "https://download.pytorch.org/whl/cu132" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-]
-metrics = [
-    { name = "torchmetrics" },
-]
-qat = [
-    { name = "albumentationsx", extra = ["headless"] },
-    { name = "huggingface-hub" },
-    { name = "nvidia-modelopt" },
-    { name = "requests" },
-    { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'linux'" },
-    { name = "torch", version = "2.14.1+cu132", source = { registry = "https://download.pytorch.org/whl/cu132" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-]
-train = [
-    { name = "albumentationsx", extra = ["headless"] },
-    { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'linux'" },
-    { name = "torch", version = "2.14.1+cu132", source = { registry = "https://download.pytorch.org/whl/cu132" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "onnxruntime" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "albumentationsx", extras = ["headless"], marker = "extra == 'qat'", specifier = "==2.5.1" },
-    { name = "albumentationsx", extras = ["headless"], marker = "extra == 'train'", specifier = "==2.5.1" },
-    { name = "huggingface-hub", marker = "extra == 'qat'", specifier = ">=2.2.0" },
-    { name = "numpy", specifier = ">=2.5.4" },
-    { name = "nvidia-modelopt", marker = "extra == 'qat'", specifier = "==0.47.0" },
-    { name = "onnx", marker = "extra == 'export'", specifier = ">=1.23.2" },
-    { name = "onnxscript", marker = "extra == 'export'", specifier = ">=0.7.2" },
-    { name = "opencv-python-headless", specifier = ">=5.0.0.93" },
-    { name = "requests", marker = "extra == 'qat'", specifier = ">=2.34.2" },
-    { name = "rich", specifier = ">=15.0.0" },
-    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'export'", specifier = "==2.14.1", index = "https://download.pytorch.org/whl/cu132" },
-    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'qat'", specifier = "==2.14.1", index = "https://download.pytorch.org/whl/cu132" },
-    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'train'", specifier = "==2.14.1", index = "https://download.pytorch.org/whl/cu132" },
-    { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'export') or (sys_platform != 'linux' and extra == 'export')", specifier = "==2.14.1" },
-    { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'qat') or (sys_platform != 'linux' and extra == 'qat')", specifier = "==2.14.1" },
-    { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'train') or (sys_platform != 'linux' and extra == 'train')", specifier = "==2.14.1" },
-    { name = "torchmetrics", marker = "extra == 'metrics'", specifier = "==1.9.0" },
-    { name = "typer", specifier = ">=0.27.3" },
-]
-provides-extras = ["train", "qat", "export", "metrics"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "onnxruntime", specifier = ">=1.31.0" },
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "ruff", specifier = ">=0.17.0" },
-]
-
-[[package]]
 name = "filelock"
 version = "4.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -699,6 +627,78 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0c/fb/8091c0aee7f2712de99c7fd4b1642382644dec6a4962effe4f5b9d16a973/ml_dtypes-0.6.0-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b76fa1d3f92967d58289ac47ab7458ede66e6f3527fff3e59142aee57d9307cd", size = 430645, upload-time = "2026-08-13T14:14:23.737Z" },
     { url = "https://files.pythonhosted.org/packages/c4/6f/962d2c589513b5930d05b6eae5fbd22ad8bbcf26bb763449f3d8f912360f/ml_dtypes-0.6.0-cp314-cp314t-win_amd64.whl", hash = "sha256:3be9911d953f97cddded4b9961d7b650473b7e55806d20f6176f8356dfe7b38e", size = 465667, upload-time = "2026-08-13T14:14:25.04Z" },
     { url = "https://files.pythonhosted.org/packages/aa/ca/bcb25e246edd19af5fa1cf6267040bd9977a7afca846e6cfd4a52078b44f/ml_dtypes-0.6.0-cp314-cp314t-win_arm64.whl", hash = "sha256:e74266ca8e97874a937b7646378c178025650a236584f7474d10d8086a6edea3", size = 572706, upload-time = "2026-08-13T14:14:26.296Z" },
+]
+
+[[package]]
+name = "modern-nafnet"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "numpy" },
+    { name = "opencv-python-headless" },
+    { name = "rich" },
+    { name = "typer" },
+]
+
+[package.optional-dependencies]
+export = [
+    { name = "onnx" },
+    { name = "onnxscript" },
+    { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'linux'" },
+    { name = "torch", version = "2.14.1+cu132", source = { registry = "https://download.pytorch.org/whl/cu132" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
+metrics = [
+    { name = "torchmetrics" },
+]
+qat = [
+    { name = "albumentationsx", extra = ["headless"] },
+    { name = "huggingface-hub" },
+    { name = "nvidia-modelopt" },
+    { name = "requests" },
+    { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'linux'" },
+    { name = "torch", version = "2.14.1+cu132", source = { registry = "https://download.pytorch.org/whl/cu132" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
+train = [
+    { name = "albumentationsx", extra = ["headless"] },
+    { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'linux'" },
+    { name = "torch", version = "2.14.1+cu132", source = { registry = "https://download.pytorch.org/whl/cu132" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "onnxruntime" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "albumentationsx", extras = ["headless"], marker = "extra == 'qat'", specifier = "==2.5.1" },
+    { name = "albumentationsx", extras = ["headless"], marker = "extra == 'train'", specifier = "==2.5.1" },
+    { name = "huggingface-hub", marker = "extra == 'qat'", specifier = ">=2.2.0" },
+    { name = "numpy", specifier = ">=2.5.4" },
+    { name = "nvidia-modelopt", marker = "extra == 'qat'", specifier = "==0.47.0" },
+    { name = "onnx", marker = "extra == 'export'", specifier = ">=1.23.2" },
+    { name = "onnxscript", marker = "extra == 'export'", specifier = ">=0.7.2" },
+    { name = "opencv-python-headless", specifier = ">=5.0.0.93" },
+    { name = "requests", marker = "extra == 'qat'", specifier = ">=2.34.2" },
+    { name = "rich", specifier = ">=15.0.0" },
+    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'export'", specifier = "==2.14.1", index = "https://download.pytorch.org/whl/cu132" },
+    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'qat'", specifier = "==2.14.1", index = "https://download.pytorch.org/whl/cu132" },
+    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'train'", specifier = "==2.14.1", index = "https://download.pytorch.org/whl/cu132" },
+    { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'export') or (sys_platform != 'linux' and extra == 'export')", specifier = "==2.14.1" },
+    { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'qat') or (sys_platform != 'linux' and extra == 'qat')", specifier = "==2.14.1" },
+    { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'train') or (sys_platform != 'linux' and extra == 'train')", specifier = "==2.14.1" },
+    { name = "torchmetrics", marker = "extra == 'metrics'", specifier = "==1.9.0" },
+    { name = "typer", specifier = ">=0.27.3" },
+]
+provides-extras = ["train", "qat", "export", "metrics"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "onnxruntime", specifier = ">=1.31.0" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "ruff", specifier = ">=0.17.0" },
 ]
 
 [[package]]

@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from drone_deblur.artifacts import environment_manifest, json_safe, sha256, write_json
+from modern_nafnet.artifacts import environment_manifest, json_safe, sha256, write_json
 
 
 def _transform_state(transform):
@@ -69,7 +69,7 @@ def restore_rng(
 def save_checkpoint(
     path: str | Path, model: torch.nn.Module, *, state: dict, config: dict, qat=False
 ):
-    from drone_deblur.models.nafnet import tlc_kernels
+    from modern_nafnet.models.nafnet import tlc_kernels
 
     checkpoint = {
         "state_dict": model.state_dict(),
@@ -79,7 +79,7 @@ def save_checkpoint(
         "environment": environment_manifest(),
     }
     if qat:
-        from drone_deblur.training.quantize import modelopt_state
+        from modern_nafnet.training.quantize import modelopt_state
 
         checkpoint["modelopt_state"] = modelopt_state(model)
     path = Path(path)
@@ -95,11 +95,11 @@ def save_checkpoint(
 def run_train(config: dict, *, qat: bool = False) -> dict:
     from torch.utils.data import DataLoader
 
-    from drone_deblur.config import DEFAULT_CONFIG
-    from drone_deblur.data.augment import build_blur_transform, build_train_transform
-    from drone_deblur.data.paired import PairedImageDataset, init_data_worker
-    from drone_deblur.models.nafnet import NAFNetLocal, check_checkpoint_metadata, load_checkpoint
-    from drone_deblur.training.losses import PSNRLoss
+    from modern_nafnet.config import DEFAULT_CONFIG
+    from modern_nafnet.data.augment import build_blur_transform, build_train_transform
+    from modern_nafnet.data.paired import PairedImageDataset, init_data_worker
+    from modern_nafnet.models.nafnet import NAFNetLocal, check_checkpoint_metadata, load_checkpoint
+    from modern_nafnet.training.losses import PSNRLoss
 
     settings = config["training"]
     steps = settings["steps"]
@@ -134,14 +134,14 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
     if saved_quantized:
         if not qat:
             raise ValueError("Use qat to restore a quantized training checkpoint")
-        from drone_deblur.training.quantize import restore_quantized_model
+        from modern_nafnet.training.quantize import restore_quantized_model
 
         model = restore_quantized_model(model, checkpoint)
     else:
         load_checkpoint(model, checkpoint_path)
     model = model.to(device)
     if qat and not saved_quantized:
-        from drone_deblur.training.quantize import calibrate_int8, calibration_inputs
+        from modern_nafnet.training.quantize import calibrate_int8, calibration_inputs
 
         quantization = config["quantization"]
         manifest = config["data"].get("calibration_manifest")
@@ -183,7 +183,7 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
             config=config,
             qat=True,
         )
-        from drone_deblur.training.quantize import quantizer_report
+        from modern_nafnet.training.quantize import quantizer_report
 
         result = {
             "checkpoint": str(path),

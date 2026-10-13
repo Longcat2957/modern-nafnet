@@ -11,8 +11,8 @@ import pytest
 torch = pytest.importorskip("torch", reason="Install the train extra for model tests")
 from torch.nn import functional as F  # noqa: E402
 
-from drone_deblur.models.layers import LayerNorm2d  # noqa: E402
-from drone_deblur.models.nafnet import (  # noqa: E402
+from modern_nafnet.models.layers import LayerNorm2d  # noqa: E402
+from modern_nafnet.models.nafnet import (  # noqa: E402
     UPSTREAM_COMMIT,
     NAFNetLocal,
     build_model,
@@ -20,7 +20,7 @@ from drone_deblur.models.nafnet import (  # noqa: E402
     load_checkpoint,
     tlc_kernels,
 )
-from drone_deblur.models.tlc import LocalAvgPool2d  # noqa: E402
+from modern_nafnet.models.tlc import LocalAvgPool2d  # noqa: E402
 
 TINY = dict(width=2, enc_blk_nums=(1, 1), middle_blk_num=1, dec_blk_nums=(1, 1))
 

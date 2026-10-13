@@ -11,7 +11,7 @@ Python 3.12를 기본으로 사용한다. 패키지·환경·실행은 uv로 관
 
 ```bash
 uv sync --locked --all-extras
-uv run --locked drone-deblur --help
+uv run --locked modern-nafnet --help
 uv run --locked --all-extras pytest -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
@@ -67,7 +67,7 @@ sharp 원본만 있다면 `data.synthetic_blur.enabled` 또는 `--synthetic-blur
 쌍을 디스크에 미리 복제하지 않으며, 매 sample마다 blur 방향·크기를 샘플링한다.
 
 ```bash
-uv run --locked --extra train drone-deblur train \
+uv run --locked --extra train modern-nafnet train \
   --config configs/experiment.json \
   --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
   --synthetic-blur --num-workers 2
@@ -96,11 +96,11 @@ raw state dict, 공식 `params`, 자체 `state_dict`는 `strict=True`로 읽으�
 키 재매핑으로 구조 차이를 숨기지 않는다.
 
 ```bash
-uv run --locked --extra train drone-deblur infer \
+uv run --locked --extra train modern-nafnet infer \
   --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
   --input data/blur.png --output artifacts/restored.png
 
-uv run --locked --extra train drone-deblur train \
+uv run --locked --extra train modern-nafnet train \
   --config configs/experiment.json \
   --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth
 ```
@@ -115,11 +115,11 @@ QAT 설정에는 `data.calibration_manifest`, `export.shape`,
 `quantization.calibration_batches`와 paired 학습 데이터가 필요하다.
 
 ```bash
-uv run --locked --extra qat drone-deblur qat \
+uv run --locked --extra qat modern-nafnet qat \
   --config configs/experiment.json \
   --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth --steps 0
 
-uv run --locked --extra qat drone-deblur qat \
+uv run --locked --extra qat modern-nafnet qat \
   --config configs/experiment.json --checkpoint artifacts/train/ptq.pt
 ```
 
@@ -137,11 +137,11 @@ DataLoader generator·TLC kernel·설정·manifest hash를 함께 저장한다.
 ModelOpt INT8는 symbolic Q/DQ를 지원하는 legacy exporter를 명시적으로 사용한다.
 
 ```bash
-uv run --locked --extra export drone-deblur export \
+uv run --locked --extra export modern-nafnet export \
   --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
   --height 256 --width 256 --output artifacts/nafnet-fp32.onnx
 
-uv run --locked --extra export --extra qat drone-deblur export \
+uv run --locked --extra export --extra qat modern-nafnet export \
   --config configs/experiment.json --checkpoint artifacts/train/last.pt \
   --quantized --height 256 --width 256 --output artifacts/nafnet-int8.onnx
 ```
@@ -164,7 +164,7 @@ clip→×255→round→uint8, 이미지별 지표 평균과 원본 channel-inclu
 TorchMetrics의 RGB 2D SSIM과 혼용하지 않는다. PSNR 무한대는 표준 JSON을 위해 `"inf"`로 기록한다.
 
 ```bash
-uv run --locked --extra train drone-deblur eval \
+uv run --locked --extra train modern-nafnet eval \
   --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
   --manifest data/test.json --output artifacts/evaluation.json
 ```

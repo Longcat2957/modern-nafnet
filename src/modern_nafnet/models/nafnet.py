@@ -11,8 +11,8 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from drone_deblur.models.layers import LayerNorm2d, SimpleGate
-from drone_deblur.models.tlc import LocalAvgPool2d
+from modern_nafnet.models.layers import LayerNorm2d, SimpleGate
+from modern_nafnet.models.tlc import LocalAvgPool2d
 
 UPSTREAM_COMMIT = "2b4af71ebe098a92a75910c233a3965a3e93ede4"
 

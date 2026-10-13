@@ -6,11 +6,11 @@ import numpy as np
 import pytest
 import torch
 
-from drone_deblur.config import DEFAULT_CONFIG
-from drone_deblur.data.images import read_rgb, write_rgb
-from drone_deblur.evaluation.quality import run_evaluate
-from drone_deblur.inference import run_infer
-from drone_deblur.models.nafnet import build_model
+from modern_nafnet.config import DEFAULT_CONFIG
+from modern_nafnet.data.images import read_rgb, write_rgb
+from modern_nafnet.evaluation.quality import run_evaluate
+from modern_nafnet.inference import run_infer
+from modern_nafnet.models.nafnet import build_model
 
 
 @pytest.fixture
