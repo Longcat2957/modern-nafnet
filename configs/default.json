@@ -24,8 +24,11 @@
     "fast_imp": false
   },
   "data": {
-    "train_manifest": null,
-    "calibration_manifest": null,
+    "path": null,
+    "train": "train",
+    "val": "val",
+    "test": "test",
+    "calibration": "calibration",
     "crop_size": 256,
     "synthetic_blur": {
       "enabled": false,
@@ -65,7 +68,7 @@
   },
   "evaluation": {
     "checkpoint": null,
-    "manifest": null,
+    "split": "val",
     "output": "artifacts/evaluation.json",
     "device": "cuda",
     "quantized": false

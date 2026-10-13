@@ -16,8 +16,11 @@ DEFAULT_CONFIG = {
         "fast_imp": False,
     },
     "data": {
-        "train_manifest": None,
-        "calibration_manifest": None,
+        "path": None,
+        "train": "train",
+        "val": "val",
+        "test": "test",
+        "calibration": "calibration",
         "crop_size": 256,
         "synthetic_blur": {"enabled": False, "blur_range": [3, 15]},
     },
@@ -51,7 +54,7 @@ DEFAULT_CONFIG = {
     },
     "evaluation": {
         "checkpoint": None,
-        "manifest": None,
+        "split": "val",
         "output": "artifacts/evaluation.json",
         "device": "cuda",
         "quantized": False,
@@ -73,14 +76,21 @@ def _validate_value(name: str, value) -> None:
             or value[0] > value[1]
         ):
             raise ValueError(f"Configuration {name} needs two ordered odd integers >= 3")
+    elif name == "evaluation.split":
+        if value not in ("val", "test"):
+            raise ValueError("Configuration evaluation.split must be val or test")
     elif key in {
         "checkpoint",
         "resume",
         "output_dir",
         "input",
         "output",
-        "manifest",
-    } or key.endswith("_manifest"):
+        "path",
+        "train",
+        "val",
+        "test",
+        "calibration",
+    }:
         if value is None and default is None:
             return
         if not isinstance(value, (str, Path)) or not str(value):

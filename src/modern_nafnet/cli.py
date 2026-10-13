@@ -4,7 +4,7 @@ import json
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 from rich.console import Console
@@ -16,6 +16,7 @@ app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 console = Console(stderr=True)
 ConfigPath = Annotated[Path | None, typer.Option(exists=True, dir_okay=False)]
 Checkpoint = Annotated[Path | None, typer.Option(exists=True, dir_okay=False)]
+DataRoot = Annotated[Path | None, typer.Option(exists=True, file_okay=False)]
 
 
 @app.callback()
@@ -52,6 +53,7 @@ def _run(operation, extra: str):
 @app.command()
 def train(
     config: ConfigPath = None,
+    data: DataRoot = None,
     checkpoint: Checkpoint = None,
     resume: Checkpoint = None,
     steps: Annotated[int | None, typer.Option(min=1)] = None,
@@ -78,7 +80,7 @@ def train(
                     "amp": amp,
                     "num_workers": num_workers,
                 },
-                "data": {"synthetic_blur": {"enabled": synthetic_blur}},
+                "data": {"path": data, "synthetic_blur": {"enabled": synthetic_blur}},
             },
         )
         return run_train(settings)
@@ -89,6 +91,7 @@ def train(
 @app.command()
 def qat(
     config: ConfigPath = None,
+    data: DataRoot = None,
     checkpoint: Checkpoint = None,
     resume: Checkpoint = None,
     steps: Annotated[int | None, typer.Option(min=0)] = None,
@@ -114,7 +117,7 @@ def qat(
                     "num_workers": num_workers,
                 },
                 "quantization": {"checkpoint": checkpoint},
-                "data": {"synthetic_blur": {"enabled": synthetic_blur}},
+                "data": {"path": data, "synthetic_blur": {"enabled": synthetic_blur}},
             },
         )
         return run_train(settings, qat=True)
@@ -190,8 +193,11 @@ def infer(
 @app.command(name="eval")
 def evaluate(
     config: ConfigPath = None,
+    data: DataRoot = None,
     checkpoint: Checkpoint = None,
-    manifest: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+    split: Annotated[
+        Literal["val", "test"] | None, typer.Option(help="Evaluation split (default: val)")
+    ] = None,
     output: Annotated[Path | None, typer.Option(dir_okay=False)] = None,
     device: Annotated[str | None, typer.Option()] = None,
     quantized: Annotated[bool | None, typer.Option("--quantized/--no-quantized")] = None,
@@ -206,11 +212,12 @@ def evaluate(
             {
                 "evaluation": {
                     "checkpoint": checkpoint,
-                    "manifest": manifest,
+                    "split": split,
                     "output": output,
                     "device": device,
                     "quantized": quantized,
-                }
+                },
+                "data": {"path": data},
             },
         )
         return run_evaluate(settings)

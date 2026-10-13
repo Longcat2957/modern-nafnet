@@ -51,6 +51,7 @@
 │   │   ├── __init__.py
 │   │   ├── images.py         # NumPy/OpenCV RGB 입출력·전후처리
 │   │   ├── augment.py        # Albumentations paired Compose·seed 설정
+│   │   ├── sources.py        # 폴더 탐색·paired 매칭·데이터 snapshot
 │   │   └── paired.py         # PyTorch Dataset·transform 호출·tensor 변환
 │   ├── training/
 │   │   ├── __init__.py
@@ -76,7 +77,7 @@
 - `training/loop.py`는 준비된 모델을 학습하며 ModelOpt를 직접 import하지 않는다. calibration·양자화 변환은 `quantize.py`에서 준비해 FP32 학습이 QAT extra를 요구하지 않게 한다.
 - `pyproject.toml`의 CLI entry point는 `modern-nafnet = "modern_nafnet.cli:main"`으로 둔다. `main()`은 Typer app을 호출하며 `@app.command()`로 x86의 `train/qat/export/infer/eval`을 필요한 순서대로 등록한다. Orin은 우선 네이티브 `trtexec` 명령을 README에 남기며, 자체 runner가 필요한 경우에만 `build/infer/bench`를 확장한다. 루트 callback을 두어 명령이 하나인 초기 단계에도 `modern-nafnet infer` 형태를 유지한다. `uv run --locked modern-nafnet --help`로 진입한다.
 - Typer의 type hint·`Annotated`·`Path` 등으로 인자/옵션과 기본 경로 검증을 선언한다. 명령 함수는 CLI 타입을 실행 설정으로 연결하는 얇은 경계로 유지하며 모델·학습·평가 함수에는 Typer 의존성을 전파하지 않는다. `no_args_is_help=True`, `pretty_exceptions_show_locals=False`를 사용한다. SDK import·설정 읽기·데이터 확인은 실제 명령 실행에서 수행한다.
-- `configs/default.json`에 데이터·모델·학습·양자화·export·runtime·평가·benchmark 설정을 둔다. JSON을 override하는 CLI 옵션의 미지정 기본값은 `None`으로 두고 `None`이 아닌 값만 병합한다. `bool | None`으로 미지정과 명시적 `False`를 구분하고 `0`/`False`를 truthiness로 누락하지 않는다. 상대 경로의 기준을 문서화하며 해상도·FPS·전력 모드의 미정 값은 `null`로 둔다.
+- `configs/default.json`에 데이터·모델·학습·양자화·export·runtime·평가·benchmark 설정을 둔다. 사용자는 필요한 값만 담은 짧은 JSON config를 작성하며 기본값은 병합한다. 데이터 입력용 manifest는 사용하지 않는다. `data.path`를 루트로 두고 `data.train/val/test/calibration` 폴더를 지정한다. CLI `train/qat/eval --data`는 루트를 override하며 `eval --split val|test`로 평가 폴더를 고른다. JSON을 override하는 CLI 옵션의 미지정 기본값은 `None`으로 두고 `None`이 아닌 값만 병합한다. `bool | None`으로 미지정과 명시적 `False`를 구분하고 `0`/`False`를 truthiness로 누락하지 않는다. `data.path`와 CLI 경로는 CWD, split 경로는 `data.path` 기준이다. 해상도·FPS·전력 모드의 미정 값은 `null`로 둔다.
 - 개발 도구는 uv의 `dev` dependency group으로 관리한다. `.gitignore`에는 `/.venv/`, `/data/`, `/artifacts/`로 저장소 루트의 작업 산출물만 제외한다. `data/` 패턴으로 `src/modern_nafnet/data/` 패키지까지 제외하지 않는다. 테스트 파일은 해당 단계의 검증에 필요한 경우에만 추가한다.
 
 ## 라이브러리 선정과 의존성 프로필
@@ -108,10 +109,11 @@
 
 ## 데이터 계약과 실행 기록
 
-- calibration에는 blur-only 데이터를 사용할 수 있다. supervised 학습/QAT는 실제 정렬된 blur/sharp 쌍 또는 옵션으로 활성화한 sharp-only 합성 쌍을 사용한다. 합성 manifest는 `sharp` 필수·`blur` 생략으로 표시하며 실제 paired 항목과 혼합할 수 있다. 명시한 blur 경로가 잘못된 경우에는 합성으로 대체하지 않는다. PSNR/SSIM 품질 평가는 실제 정렬된 blur/sharp 쌍을 요구한다. 파일 쌍·크기·RGB/range·읽기 실패를 검증하고 누락 샘플을 조용히 건너뛰지 않는다.
-- 촬영 시퀀스·장소·날짜를 기준으로 train/calibration/validation/test manifest를 고정한다. 같은 영상의 인접 프레임을 학습과 최종 평가에 나누지 않으며, 최종 test는 calibration·튜닝에 사용하지 않는다.
+- supervised 학습/QAT와 품질 평가는 split 아래 `blur/`와 `sharp/`의 같은 상대 경로·파일명을 매칭한다. GoPro의 `split/sequence/{blur,sharp}/` 구조도 보존한다. 디렉터리를 시작 시 한 번 탐색해 정렬한 목록으로 고정하고 sample마다 재탐색하거나 준비 단계에서 이미지를 decode하지 않는다. 빠진 쌍·중복·모호한 이미지 배치는 오류로 처리한다.
+- sharp-only 학습은 `--synthetic-blur`로 활성화한다. clean 이미지가 직접 있는 폴더나 sharp-only 폴더를 사용하며 GT에만 원본을 둔다. 실제 blur 폴더가 존재하는 paired 구조의 누락은 합성으로 대체하지 않는다. calibration은 별도의 실제 blur 폴더를 사용하고 학습·평가 split으로 fallback하거나 합성하지 않는다. 품질 평가는 실제 정렬된 blur/sharp 쌍을 요구한다. 파일 쌍·크기·RGB/range·읽기 실패를 검증하고 누락 샘플을 조용히 건너뛰지 않는다.
+- 촬영 시퀀스·장소·날짜를 기준으로 train/calibration/val/test 폴더를 분리한다. 같은 영상의 인접 프레임을 학습과 최종 평가에 나누지 않으며, 최종 test는 calibration·튜닝에 사용하지 않는다. 임의의 자동 split을 만들지 않는다.
 - 드론 정답 쌍이 없다면 paired GoPro로 QAT하고 드론 데이터는 calibration·시각·추론 평가에 사용한다. 정답 없는 드론 영상의 PSNR/SSIM을 보고하지 않는다.
-- 각 실행은 `artifacts/<run>/`에 적용된 설정, upstream commit·checkpoint SHA-256, 데이터 manifest 식별자, 패키지·장비·SDK 버전, 입력 shape/dtype, 평가 protocol, 결과 JSON을 남긴다. ONNX·엔진 hash와 builder/typing 설정도 기록한다. 외부 실험 추적 서버는 초기 범위에 넣지 않는다.
+- 각 실행은 `artifacts/<run>/`에 적용된 설정, upstream commit·checkpoint SHA-256, 실제 사용한 데이터 파일 목록·경로/크기/수정시간 fingerprint, 패키지·장비·SDK 버전, 입력 shape/dtype, 평가 protocol, 결과 JSON을 남긴다. 파일 목록은 체크포인트와 평가 결과에 자동 저장하며 사용자가 별도 입력 파일을 만들지 않는다. 데이터 snapshot이 없는 과거 학습 checkpoint는 정확한 `--resume`를 거부하고 `--checkpoint`로 가중치 fine-tune만 허용한다. ONNX·엔진 hash와 builder/typing 설정도 기록한다. 외부 실험 추적 서버는 초기 범위에 넣지 않는다.
 
 ## 모델 기준
 

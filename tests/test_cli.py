@@ -40,6 +40,17 @@ def test_bad_argument():
     assert result.exit_code == 2
 
 
+def test_qat_cli_zero_steps_selects_calibration_only(monkeypatch):
+    import types
+
+    stub = types.ModuleType("modern_nafnet.training.loop")
+    stub.run_train = lambda config, **kwargs: config["training"]
+    monkeypatch.setitem(sys.modules, "modern_nafnet.training.loop", stub)
+    result = runner.invoke(app, ["qat", "--steps", "0"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["steps"] == 0
+
+
 def test_workflow_status_does_not_corrupt_json_stdout(monkeypatch):
     import types
 
@@ -95,6 +106,84 @@ def test_synthetic_blur_and_zero_workers_override_json(
     config = json.loads(result.stdout)
     assert config["data"]["synthetic_blur"]["enabled"] is enabled
     assert config["training"]["num_workers"] == 0
+
+
+@pytest.mark.parametrize("command", ["train", "qat", "eval"])
+@pytest.mark.parametrize("override", [False, True])
+def test_data_root_cli_override_and_none_preserves_config(tmp_path, monkeypatch, command, override):
+    import types
+
+    configured = tmp_path / "configured"
+    configured.mkdir()
+    selected = tmp_path / "selected"
+    selected.mkdir()
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "data": {"path": str(configured), "train": "clean"},
+                "training": {"num_workers": 2},
+                "evaluation": {"split": "test"},
+            }
+        )
+    )
+    module = (
+        "modern_nafnet.evaluation.quality" if command == "eval" else "modern_nafnet.training.loop"
+    )
+    stub = types.ModuleType(module)
+    operation = "run_evaluate" if command == "eval" else "run_train"
+    setattr(stub, operation, lambda config, **kwargs: config)
+    monkeypatch.setitem(sys.modules, module, stub)
+    arguments = [command, "--config", str(path)]
+    if override:
+        arguments += ["--data", str(selected)]
+    result = runner.invoke(app, arguments)
+    assert result.exit_code == 0, result.output
+    config = json.loads(result.stdout)
+    assert config["data"]["path"] == str(selected if override else configured)
+    assert config["data"]["train"] == "clean"
+    assert config["training"]["num_workers"] == 2
+    assert config["evaluation"]["split"] == "test"
+
+
+@pytest.mark.parametrize("split,expected", [(None, "test"), ("val", "val"), ("test", "test")])
+def test_eval_split_cli_override_and_none_preserves_config(tmp_path, monkeypatch, split, expected):
+    import types
+
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"evaluation": {"split": "test"}}))
+    stub = types.ModuleType("modern_nafnet.evaluation.quality")
+    stub.run_evaluate = lambda config: config["evaluation"]
+    monkeypatch.setitem(sys.modules, "modern_nafnet.evaluation.quality", stub)
+    arguments = ["eval", "--config", str(path)]
+    if split is not None:
+        arguments += ["--split", split]
+    result = runner.invoke(app, arguments)
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["split"] == expected
+    assert load_config()["evaluation"]["split"] == "val"
+
+
+@pytest.mark.parametrize(
+    "removed",
+    [
+        {"data": {"train_manifest": "removed.json"}},
+        {"data": {"calibration_manifest": "removed.json"}},
+        {"evaluation": {"manifest": "removed.json"}},
+        "--manifest",
+    ],
+)
+def test_removed_input_manifest_configuration_and_option_are_rejected(tmp_path, removed):
+    if isinstance(removed, dict):
+        path = tmp_path / "invalid-config.json"
+        path.write_text(json.dumps(removed))
+        with pytest.raises(ValueError, match="Unknown configuration"):
+            load_config(path)
+    else:
+        result = runner.invoke(app, ["eval", removed, "removed.json"])
+        assert result.exit_code == 2
+        assert "No such option" in result.output
+        assert result.stdout == ""
 
 
 def test_missing_dependency_reports_profile_on_stderr(monkeypatch):

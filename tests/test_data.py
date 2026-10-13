@@ -1,4 +1,6 @@
 import json
+import os
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -8,14 +10,13 @@ import torch
 from modern_nafnet.data.augment import build_blur_transform, build_train_transform
 from modern_nafnet.data.images import read_rgb, rgb_to_uint8, write_rgb
 from modern_nafnet.data.paired import PairedImageDataset, init_data_worker
+from modern_nafnet.data.sources import load_samples, resolve_data_source, source_record
 
 
-def _manifest(tmp_path, blur, sharp):
-    write_rgb(tmp_path / "blur.png", blur)
-    write_rgb(tmp_path / "sharp.png", sharp)
-    path = tmp_path / "pairs.json"
-    path.write_text(json.dumps([{"blur": "blur.png", "sharp": "sharp.png"}]))
-    return path
+def _pair(tmp_path, blur, sharp):
+    write_rgb(tmp_path / "blur" / "image.png", blur)
+    write_rgb(tmp_path / "sharp" / "image.png", sharp)
+    return tmp_path
 
 
 def test_rgb_io_and_official_rounding(tmp_path):
@@ -33,9 +34,9 @@ def test_rgb_io_and_official_rounding(tmp_path):
 
 def test_paired_crop_orientation_and_seed(tmp_path):
     blur = np.arange(18 * 20 * 3, dtype=np.uint16).reshape(18, 20, 3).astype(np.uint8)
-    manifest = _manifest(tmp_path, blur, 255 - blur)
-    dataset_a = PairedImageDataset(manifest, build_train_transform(12, seed=42))
-    dataset_b = PairedImageDataset(manifest, build_train_transform(12, seed=42))
+    source = _pair(tmp_path, blur, 255 - blur)
+    dataset_a = PairedImageDataset(source, build_train_transform(12, seed=42))
+    dataset_b = PairedImageDataset(source, build_train_transform(12, seed=42))
     first = dataset_a[0]
     repeated = dataset_b[0]
     assert first["blur"].shape == (3, 12, 12)
@@ -47,11 +48,12 @@ def test_paired_crop_orientation_and_seed(tmp_path):
     assert torch.equal(dataset_a[0]["blur"], dataset_b[0]["blur"])
 
 
-def test_eval_dataset_is_deterministic_and_resolves_manifest_paths(tmp_path, monkeypatch):
+def test_eval_dataset_is_deterministic_and_resolves_directory_paths(tmp_path, monkeypatch):
     rgb = np.full((11, 13, 3), (20, 50, 200), dtype=np.uint8)
-    manifest = _manifest(tmp_path, rgb, rgb)
+    source = _pair(tmp_path, rgb, rgb)
     monkeypatch.chdir(tmp_path.parent)
-    dataset = PairedImageDataset(manifest)
+    dataset = PairedImageDataset(source.name)
+    assert dataset.samples[0]["blur"] == source / "blur" / "image.png"
     first, second = dataset[0], dataset[0]
     assert first["blur"].shape == (3, 11, 13)
     assert torch.equal(first["blur"], second["blur"])
@@ -59,27 +61,25 @@ def test_eval_dataset_is_deterministic_and_resolves_manifest_paths(tmp_path, mon
 
 
 def test_missing_corrupt_or_unaligned_pair_fails(tmp_path):
-    manifest = tmp_path / "pairs.json"
-    manifest.write_text('[{"blur":"missing.png","sharp":"missing.png"}]')
-    with pytest.raises(FileNotFoundError, match="entry 0"):
-        PairedImageDataset(manifest)
-    manifest = _manifest(tmp_path, np.zeros((12, 12, 3), np.uint8), np.zeros((11, 12, 3), np.uint8))
+    with pytest.raises(FileNotFoundError, match="source"):
+        PairedImageDataset(tmp_path / "missing")
+    source = _pair(tmp_path, np.zeros((12, 12, 3), np.uint8), np.zeros((11, 12, 3), np.uint8))
     with pytest.raises(ValueError, match="Unaligned pair"):
-        PairedImageDataset(manifest)[0]
-    (tmp_path / "blur.png").write_text("invalid PNG")
+        PairedImageDataset(source)[0]
+    (tmp_path / "blur" / "image.png").write_text("invalid PNG")
     with pytest.raises(ValueError, match="decode"):
-        PairedImageDataset(manifest)[0]
+        PairedImageDataset(source)[0]
 
 
-def test_reject_invalid_crop_and_duplicate_names(tmp_path):
+def test_reject_invalid_crop_and_duplicate_sample_paths(tmp_path):
     with pytest.raises(ValueError, match="positive"):
         build_train_transform(0, seed=1)
     rgb = np.zeros((12, 12, 3), np.uint8)
-    manifest = _manifest(tmp_path, rgb, rgb)
-    entry = json.loads(manifest.read_text())[0]
-    manifest.write_text(json.dumps([entry, entry]))
-    with pytest.raises(ValueError, match="unique"):
-        PairedImageDataset(manifest)
+    _pair(tmp_path, rgb, rgb)
+    write_rgb(tmp_path / "blur" / "sequence" / "frame.png", rgb)
+    write_rgb(tmp_path / "sequence" / "blur" / "frame.png", rgb)
+    with pytest.raises(ValueError, match="Duplicate blur"):
+        PairedImageDataset(tmp_path)
 
 
 def test_sharp_only_blur_is_seeded_crop_first_and_preserves_gt(tmp_path, monkeypatch):
@@ -87,8 +87,6 @@ def test_sharp_only_blur_is_seeded_crop_first_and_preserves_gt(tmp_path, monkeyp
 
     sharp = np.random.default_rng(4).integers(0, 256, (40, 48, 3), dtype=np.uint8)
     write_rgb(tmp_path / "sharp.png", sharp)
-    manifest = tmp_path / "sharp.json"
-    manifest.write_text('[{"sharp":"sharp.png"}]')
     geometry = build_train_transform(16, seed=42)
     degradation = build_blur_transform([7, 7], seed=43)
     expected_gt = geometry(image=sharp, sharp=sharp)["sharp"]
@@ -106,7 +104,7 @@ def test_sharp_only_blur_is_seeded_crop_first_and_preserves_gt(tmp_path, monkeyp
 
     monkeypatch.setattr(paired, "read_rgb", read_once)
     dataset = PairedImageDataset(
-        manifest, build_train_transform(16, seed=42), blur_transform=check_crop_first
+        tmp_path, build_train_transform(16, seed=42), blur_transform=check_crop_first
     )
     pair = dataset[0]
     assert len(reads) == 1 and blur_shapes == [(16, 16, 3)]
@@ -120,23 +118,200 @@ def test_sharp_only_blur_is_seeded_crop_first_and_preserves_gt(tmp_path, monkeyp
     np.testing.assert_array_equal(read_rgb(tmp_path / "sharp.png"), sharp)
 
 
-def test_mixed_manifest_blurs_only_missing_inputs(tmp_path):
+def test_actual_pairs_are_not_degraded_when_synthetic_blur_is_enabled(tmp_path):
     rgb = np.random.default_rng(2).integers(0, 256, (12, 12, 3), dtype=np.uint8)
-    manifest = _manifest(tmp_path, rgb, 255 - rgb)
-    entries = json.loads(manifest.read_text())
-    entries.append({"name": "synthetic", "sharp": "sharp.png"})
-    manifest.write_text(json.dumps(entries))
-    dataset = PairedImageDataset(manifest, blur_transform=build_blur_transform([7, 7], seed=3))
-    real, synthetic = dataset[0], dataset[1]
+    source = _pair(tmp_path, rgb, 255 - rgb)
+
+    def unexpected_blur(**_kwargs):
+        pytest.fail("An actual image pair must not receive synthetic blur")
+
+    real = PairedImageDataset(source, blur_transform=unexpected_blur)[0]
     assert torch.allclose(real["blur"] + real["sharp"], torch.ones_like(real["sharp"]))
-    assert torch.equal(real["sharp"], synthetic["sharp"])
-    assert not torch.equal(synthetic["blur"], synthetic["sharp"])
-    with pytest.raises(ValueError, match="blur path"):
-        PairedImageDataset(manifest)
-    entries[1]["blur"] = None
-    manifest.write_text(json.dumps(entries))
-    with pytest.raises(ValueError, match="blur path"):
-        PairedImageDataset(manifest, blur_transform=build_blur_transform([7, 7], seed=3))
+    (source / "blur" / "image.png").unlink()
+    with pytest.raises(ValueError, match="Missing blur.*synthetic fallback"):
+        PairedImageDataset(source, blur_transform=unexpected_blur)
+
+
+@pytest.mark.parametrize("layout", ["simple", "gopro"])
+def test_exact_pair_matching_and_stable_sequence_order(tmp_path, layout, monkeypatch):
+    rgb = np.zeros((8, 8, 3), np.uint8)
+    for sequence in ("z", "a"):
+        for role in ("blur", "sharp"):
+            folder = (
+                tmp_path / role / sequence if layout == "simple" else tmp_path / sequence / role
+            )
+            write_rgb(folder / "0001.png", rgb)
+    (tmp_path / "README.txt").write_text("Non-image files are ignored")
+    monkeypatch.setattr(
+        cv2, "imread", lambda *_args: pytest.fail("Scanning must not decode images")
+    )
+    samples = load_samples(tmp_path)
+    assert [sample["name"] for sample in samples] == ["a/0001.png", "z/0001.png"]
+    assert all(
+        isinstance(sample["blur"], Path) and sample["blur"].is_absolute() for sample in samples
+    )
+    assert load_samples(tmp_path) == samples
+
+
+def test_dataset_scans_once_and_decodes_only_when_indexed(tmp_path, monkeypatch):
+    from modern_nafnet.data import paired
+
+    rgb = np.zeros((8, 8, 3), np.uint8)
+    source = _pair(tmp_path, rgb, rgb)
+    scans, reads = [], []
+    original_scan = Path.rglob
+
+    def scan(path, pattern):
+        scans.append(path)
+        return original_scan(path, pattern)
+
+    def decode(path):
+        reads.append(path)
+        return rgb
+
+    monkeypatch.setattr(Path, "rglob", scan)
+    monkeypatch.setattr(paired, "read_rgb", decode)
+    dataset = PairedImageDataset(source)
+    assert scans == [source] and not reads
+    dataset[0]
+    dataset[0]
+    assert scans == [source] and len(reads) == 4
+
+
+def test_pair_extensions_must_match_exactly(tmp_path):
+    rgb = np.zeros((8, 8, 3), np.uint8)
+    source = _pair(tmp_path, rgb, rgb)
+    (source / "sharp" / "image.png").rename(source / "sharp" / "image.jpg")
+    with pytest.raises(ValueError, match="Missing .* pair"):
+        load_samples(source, allow_sharp_only=True)
+
+
+@pytest.mark.parametrize("extra", ["loose.png", "blur/sharp/ambiguous.png"])
+def test_unclassified_and_ambiguous_images_are_errors(tmp_path, extra):
+    rgb = np.zeros((8, 8, 3), np.uint8)
+    source = _pair(tmp_path, rgb, rgb)
+    write_rgb(source / extra, rgb)
+    with pytest.raises(ValueError, match="Unclassified or ambiguous"):
+        load_samples(source, allow_sharp_only=True)
+
+
+@pytest.mark.parametrize(
+    "image_path, expected_name",
+    [
+        ("frame.png", "frame.png"),
+        ("scene/frame.png", "scene/frame.png"),
+        ("sharp/frame.png", "frame.png"),
+        ("scene/sharp/frame.png", "scene/frame.png"),
+    ],
+)
+def test_sharp_only_directory_layouts_require_opt_in(tmp_path, image_path, expected_name):
+    rgb = np.zeros((8, 8, 3), np.uint8)
+    write_rgb(tmp_path / image_path, rgb)
+    with pytest.raises(ValueError, match="Paired directory|Missing blur"):
+        load_samples(tmp_path)
+    samples = load_samples(tmp_path, allow_sharp_only=True)
+    assert samples == [{"name": expected_name, "sharp": (tmp_path / image_path).resolve()}]
+    if "sharp" in Path(image_path).parts[:-1]:
+        folder = (tmp_path / image_path).parent
+        assert load_samples(folder, allow_sharp_only=True)[0]["name"] == "frame.png"
+
+
+def test_empty_blur_directory_prevents_synthetic_fallback(tmp_path):
+    write_rgb(tmp_path / "sharp" / "image.png", np.zeros((8, 8, 3), np.uint8))
+    (tmp_path / "blur").mkdir()
+    with pytest.raises(ValueError, match="Missing blur.*synthetic fallback"):
+        load_samples(tmp_path, allow_sharp_only=True)
+
+
+def test_mixed_sharp_roles_and_unclassified_clean_images_are_rejected(tmp_path):
+    rgb = np.zeros((8, 8, 3), np.uint8)
+    write_rgb(tmp_path / "sharp" / "image.png", rgb)
+    write_rgb(tmp_path / "loose.png", rgb)
+    with pytest.raises(ValueError, match="Unclassified"):
+        load_samples(tmp_path, allow_sharp_only=True)
+
+
+@pytest.mark.parametrize("options", [{"allow_sharp_only": True}, {"blur_only": True}])
+def test_flat_directory_rejects_duplicate_symlink_images(tmp_path, options):
+    original = tmp_path / "frame.png"
+    write_rgb(original, np.zeros((8, 8, 3), np.uint8))
+    (tmp_path / "alias.png").symlink_to(original)
+    with pytest.raises(ValueError, match="Duplicate .* image"):
+        load_samples(tmp_path, **options)
+
+
+def test_calibration_selects_blur_without_validating_sharp(tmp_path):
+    rgb = np.zeros((8, 8, 3), np.uint8)
+    write_rgb(tmp_path / "sequence" / "blur" / "frame.png", rgb)
+    ignored = tmp_path / "sequence" / "sharp" / "blur" / "unmatched.png"
+    ignored.parent.mkdir(parents=True)
+    ignored.write_text("Sharp images are neither matched nor decoded for calibration")
+    samples = load_samples(tmp_path, blur_only=True)
+    assert samples == [
+        {"name": "sequence/frame.png", "blur": tmp_path / "sequence" / "blur" / "frame.png"}
+    ]
+    assert load_samples(tmp_path / "sequence" / "blur", blur_only=True)[0]["name"] == "frame.png"
+    with pytest.raises(ValueError, match="not a sharp directory"):
+        load_samples(tmp_path / "sequence" / "sharp", blur_only=True)
+
+
+def test_flat_calibration_and_empty_directories(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(ValueError, match="no supported images"):
+        load_samples(empty, blur_only=True)
+    source = tmp_path / "calibration"
+    write_rgb(source / "frame.png", np.zeros((8, 8, 3), np.uint8))
+    assert load_samples(source, blur_only=True) == [
+        {"name": "frame.png", "blur": source / "frame.png"}
+    ]
+
+
+def test_json_files_are_not_data_inputs(tmp_path):
+    path = tmp_path / "input.json"
+    path.write_text("[]")
+    with pytest.raises(ValueError, match="must be a directory"):
+        load_samples(path)
+    with pytest.raises(ValueError, match="must be a directory"):
+        source_record(path, [])
+
+
+def test_source_record_is_json_safe_and_detects_file_metadata_changes(tmp_path, monkeypatch):
+    rgb = np.zeros((8, 8, 3), np.uint8)
+    _pair(tmp_path, rgb, rgb)
+    for role in ("blur", "sharp"):
+        write_rgb(tmp_path / role / "second.png", rgb)
+    samples = load_samples(tmp_path)
+    monkeypatch.setattr(
+        Path, "open", lambda *_args, **_kwargs: pytest.fail("Metadata must not read images")
+    )
+    record = source_record(tmp_path, samples)
+    assert json.loads(json.dumps(record)) == record
+    assert record["source"] == str(tmp_path)
+    assert len(record["samples"]) == 2
+    assert record["samples"][0] == {
+        "name": "image.png",
+        "blur": str(tmp_path / "blur" / "image.png"),
+        "sharp": str(tmp_path / "sharp" / "image.png"),
+    }
+    assert record["sha256"] == source_record(tmp_path, list(reversed(samples)))["sha256"]
+    path = samples[0]["blur"]
+    info = path.stat()
+    os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 1_000_000_000))
+    assert record["sha256"] != source_record(tmp_path, samples)["sha256"]
+    os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))
+    samples[0]["name"] = "renamed.png"
+    assert record["sha256"] != source_record(tmp_path, samples)["sha256"]
+
+
+def test_resolve_data_source_uses_cwd_root_and_absolute_split(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    data = {"path": "dataset", "train": "trainset", "val": str(tmp_path / "external")}
+    assert resolve_data_source(data, "train") == tmp_path / "dataset" / "trainset"
+    assert resolve_data_source(data, "val") == tmp_path / "external"
+    assert resolve_data_source(data, "test") == tmp_path / "dataset" / "test"
+    with pytest.raises(ValueError, match="data.path"):
+        resolve_data_source({"path": None}, "train")
 
 
 def test_worker_init_disables_nested_opencv_threads(monkeypatch):

@@ -98,6 +98,7 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
     from modern_nafnet.config import DEFAULT_CONFIG
     from modern_nafnet.data.augment import build_blur_transform, build_train_transform
     from modern_nafnet.data.paired import PairedImageDataset, init_data_worker
+    from modern_nafnet.data.sources import load_samples, resolve_data_source, source_record
     from modern_nafnet.models.nafnet import NAFNetLocal, check_checkpoint_metadata, load_checkpoint
     from modern_nafnet.training.losses import PSNRLoss
 
@@ -118,6 +119,16 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
             raise RuntimeError("CUDA training was requested but CUDA is not available")
         torch.cuda.manual_seed_all(seed)
     generator = torch.Generator().manual_seed(seed)
+    data = config["data"]
+    synthetic_settings = data.get("synthetic_blur", DEFAULT_CONFIG["data"]["synthetic_blur"])
+    transform = blur_transform = None
+    if steps > 0:
+        source = resolve_data_source(data, "train")
+        transform = build_train_transform(data["crop_size"], seed)
+        if synthetic_settings["enabled"]:
+            blur_transform = build_blur_transform(synthetic_settings["blur_range"], seed + 1)
+        dataset = PairedImageDataset(source, transform=transform, blur_transform=blur_transform)
+        dataset_record = source_record(source, dataset.samples)
     model = NAFNetLocal(**config.get("model", {}))
     resume_path = settings.get("resume")
     checkpoint_path = (
@@ -128,6 +139,7 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
     if not checkpoint_path:
         raise ValueError("training.checkpoint or training.resume is required")
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    calibration_record = checkpoint.get("training_state", {}).get("calibration_dataset")
     source_hash = sha256(checkpoint_path)
     check_checkpoint_metadata(model, checkpoint, config.get("model", {}))
     saved_quantized = isinstance(checkpoint, dict) and bool(checkpoint.get("modelopt_state"))
@@ -144,22 +156,32 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
         from modern_nafnet.training.quantize import calibrate_int8, calibration_inputs
 
         quantization = config["quantization"]
-        manifest = config["data"].get("calibration_manifest")
+        calibration_source = resolve_data_source(data, "calibration")
         shape = config["export"].get("shape")
-        if not manifest or not shape:
-            raise ValueError("QAT initialization needs calibration_manifest and export.shape")
+        if not shape:
+            raise ValueError("QAT initialization needs export.shape")
         if (
             len(shape) != 4
             or shape[:2] != [1, 3]
             or any(not isinstance(n, int) or isinstance(n, bool) or n <= 0 for n in shape)
         ):
             raise ValueError("Calibration shape must be fixed [1, 3, height, width]")
+        calibration_samples = load_samples(calibration_source, blur_only=True)[
+            : quantization["calibration_batches"]
+        ]
+        calibration_record = source_record(calibration_source, calibration_samples)
         sample = torch.zeros(shape, device=device)
         with torch.inference_mode():
             model.eval()(sample)
         model = calibrate_int8(
             model,
-            calibration_inputs(manifest, shape, str(device), quantization["calibration_batches"]),
+            calibration_inputs(
+                calibration_source,
+                shape,
+                str(device),
+                quantization["calibration_batches"],
+                samples=calibration_samples,
+            ),
         )
     output_dir = Path(settings["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -178,7 +200,7 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
                 "step": 0,
                 "resumable": False,
                 "source_checkpoint_sha256": source_hash,
-                "calibration_manifest_sha256": sha256(manifest),
+                "calibration_dataset": calibration_record,
             },
             config=config,
             qat=True,
@@ -194,19 +216,6 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
         write_json(output_dir / "result.json", result)
         return result
 
-    data = config["data"]
-    if not data.get("train_manifest"):
-        raise ValueError("data.train_manifest is required for supervised training/QAT")
-    transform = build_train_transform(data["crop_size"], seed)
-    synthetic_settings = data.get("synthetic_blur", DEFAULT_CONFIG["data"]["synthetic_blur"])
-    blur_transform = (
-        build_blur_transform(synthetic_settings["blur_range"], seed + 1)
-        if synthetic_settings["enabled"]
-        else None
-    )
-    dataset = PairedImageDataset(
-        data["train_manifest"], transform=transform, blur_transform=blur_transform
-    )
     batch_size = settings["batch_size"]
     workers = settings.get("num_workers", 0)
     if batch_size < 1 or workers < 0:
@@ -221,7 +230,6 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
         persistent_workers=False,
         drop_last=False,
     )
-    manifest_hash = sha256(data["train_manifest"])
     optimizer = torch.optim.AdamW(model.parameters(), lr=settings["lr"], weight_decay=0)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=steps)
     scaler = torch.amp.GradScaler("cuda", enabled=amp)
@@ -246,8 +254,13 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
         )
         if previous_synthetic != synthetic_settings:
             raise ValueError("Resume requires the original data.synthetic_blur configuration")
-        if state["manifest_sha256"] != manifest_hash:
-            raise ValueError("The training manifest changed since the checkpoint")
+        if not state.get("dataset"):
+            raise ValueError(
+                "The checkpoint has no dataset snapshot; use --checkpoint for fine-tuning "
+                "instead of --resume"
+            )
+        if state["dataset"]["sha256"] != dataset_record["sha256"]:
+            raise ValueError("The training dataset changed since the checkpoint")
         optimizer.load_state_dict(state["optimizer"])
         scheduler.load_state_dict(state["scheduler"])
         scaler.load_state_dict(state["scaler"])
@@ -268,11 +281,9 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
             "scheduler": scheduler.state_dict(),
             "scaler": scaler.state_dict(),
             "rng": rng_state(generator, transform, blur_transform),
-            "manifest_sha256": manifest_hash,
+            "dataset": dataset_record,
             "source_checkpoint_sha256": source_hash,
-            "calibration_manifest_sha256": sha256(data["calibration_manifest"])
-            if qat and data.get("calibration_manifest")
-            else None,
+            "calibration_dataset": calibration_record,
             # shortcut: epoch-boundary replay with num_workers=0 only; add sampler/worker state before mid-step resume.
             "resume_policy": "epoch boundaries; exact augmentation replay only with num_workers=0",
             "worker_state_saved": False,

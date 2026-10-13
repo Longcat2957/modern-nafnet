@@ -30,62 +30,76 @@ Transformers·ModelOpt `[all]`·BasicSR은 프로젝트 의존성이 아니다.
 
 ## 설정과 데이터
 
-`configs/default.json`을 실험용 설정으로 복사해 실제 경로를 지정한다. 설정 JSON과
-CLI의 상대 경로는 **명령을 실행한 작업 디렉터리**를 기준으로 한다. CLI에서 명시한
-옵션만 JSON을 덮어쓰며 `--no-amp`, `--no-quantized`, `qat --steps 0`도 보존한다.
-미정인 배포 shape·FPS·전력 모드는 `null`로 둔다.
-
-paired manifest는 비어 있지 않은 JSON 배열이다. **manifest 내부 이미지 경로는
-manifest 파일의 디렉터리**를 기준으로 한다. `name`은 선택 사항이며 지정하면 고유해야 한다.
+실험 설정 파일 **하나**에 데이터 위치와 바꿀 학습 옵션만 적는다.
+[`configs/train.json`](configs/train.json)을 수정해 시작하며, 나머지는 기본값을 사용한다.
+데이터 입력용 manifest와 `--manifest` 옵션은 제거했다.
 
 ```json
-[
-  {"name": "sequence-001/frame-0001", "blur": "blur/0001.png", "sharp": "sharp/0001.png"}
-]
+{
+  "data": {"path": "data/deblur"},
+  "training": {"checkpoint": "artifacts/checkpoints/NAFNet-GoPro-width32.pth"}
+}
 ```
 
-학습에는 `data.train_manifest`와 `data.crop_size`를 지정한다. paired RandomCrop와
-균등 D4 변환을 AlbumentationsX Compose 한 번으로 적용한다. 8-bit HWC RGB에서
-contiguous CHW float `[0,1]`로 변환하며 ImageNet 정규화를 적용하지 않는다.
-파일 누락·읽기 실패·쌍의 크기 불일치는 오류로 처리한다.
+기본 폴더 구조는 다음과 같다. 하위 시퀀스 폴더가 있어도 같은 상대 경로·파일명을
+기준으로 blur/sharp를 자동 매칭한다. 누락된 쌍이나 모호한 배치는 오류로 처리한다.
 
-sharp 원본만 있다면 `data.synthetic_blur.enabled` 또는 `--synthetic-blur`로
-학습 중 blur/sharp 쌍을 생성한다. manifest에 `blur`가 없는 항목에만 적용하므로
-같은 배열에 실제 paired 데이터도 섞을 수 있다. `blur`를 지정한 항목은 그대로 사용하며
-잘못된 blur 경로를 합성 입력으로 대체하지 않는다. 원본은 깨끗한 sharp GT여야 한다.
-
-```json
-[
-  {"name": "clean-001", "sharp": "sharp/0001.png"},
-  {"name": "real-002", "blur": "blur/0002.png", "sharp": "sharp/0002.png"}
-]
+```text
+data/deblur/
+├── train/
+│   ├── blur/0001.png
+│   └── sharp/0001.png
+├── val/
+│   ├── blur/0002.png
+│   └── sharp/0002.png
+├── test/                  # 평가할 때 준비
+│   ├── blur/0003.png
+│   └── sharp/0003.png
+└── calibration/0004.png   # QAT 초기화할 때 실제 blur 이미지 준비
 ```
 
-`data.synthetic_blur.blur_range`는 MotionBlur의 홀수 kernel 크기 범위이며 기본값은
-`[3,15]`다. 원본을 한 번 읽고 공유 RandomCrop/D4를 먼저 적용한 뒤, uint8 patch의
-입력에만 AlbumentationsX MotionBlur를 적용한다. sharp GT와 원본 파일은 수정하지 않는다.
-쌍을 디스크에 미리 복제하지 않으며, 매 sample마다 blur 방향·크기를 샘플링한다.
+```bash
+uv run --locked --extra train modern-nafnet train --config configs/train.json
+```
+
+config 없이 경로를 바로 지정할 수도 있다. GoPro의 `train/<sequence>/{blur,sharp}/`
+구조는 그대로 읽으며 JSON 목록을 만들지 않는다.
 
 ```bash
 uv run --locked --extra train modern-nafnet train \
-  --config configs/experiment.json \
-  --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
+  --data data/GoPro --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth
+```
+
+폴더명이 다르면 같은 config 안에서 `data.train/val/test/calibration`만 바꾼다.
+[Ultralytics의 데이터 설정](https://docs.ultralytics.com/datasets/detect/)처럼 `data.path`는
+루트, split 값은 그 아래의 경로다. `data.path`와 CLI 상대 경로는 **명령을 실행한
+작업 디렉터리** 기준이며, split에 절대 경로를 지정할 수도 있다. `eval`은 기본 `val`을
+읽고 `--split test`로 test를 선택한다. GoPro의 공개 평가 폴더는 `test`를 사용한다.
+
+sharp 원본만 있다면 `data/Clean/train/`에 이미지를 넣고 합성 blur를 켠다.
+하위 폴더 또는 `train/sharp/`만 있는 구조도 사용할 수 있다.
+
+```bash
+uv run --locked --extra train modern-nafnet train \
+  --data data/Clean --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
   --synthetic-blur --num-workers 2
 ```
 
-동일 옵션을 `qat`에서도 사용할 수 있다. `--no-synthetic-blur`는 JSON의 활성화를
-명시적으로 끈다. 기본 `num_workers=0`은 주 프로세스에서 동기 처리하므로 CUDA 학습에서
-입력 준비가 병목이면 `--num-workers`로 조절한다. 위의 2는 시작 예시이며 장비에 맞춰 정한다.
-각 worker에서는 OpenCV 내부 스레드와 OpenCL을 꺼 중첩 병렬화를 피한다. crop 우선·uint8
-유지는 [공식 성능 지침](https://albumentations.ai/docs/3-basic-usage/performance-tuning/)을 따른다.
-원본 전체의 이미지 decode 비용은 남으며 처리량 개선 수치는 아직 측정하지 않았다.
-합성 MotionBlur가 실제 드론 블러 분포를 재현한다고 가정하지 않는다. 평가에는 실제 paired
-데이터, calibration에는 별도로 준비한 실제 blur manifest를 사용한다.
+원본은 깨끗한 sharp GT여야 한다. crop/D4를 먼저 적용한 뒤 입력에만 AlbumentationsX
+MotionBlur를 적용하며 GT를 보존한다. 실제 paired 폴더의 누락을 합성 blur로 대체하지 않는다.
+`data.synthetic_blur.blur_range`의 기본 kernel 범위는 `[3,15]`다. 이미지를 한 번 읽고
+uint8 crop에서 증강한 뒤 contiguous CHW float `[0,1]`로 변환한다. ImageNet 정규화나
+합성 쌍의 디스크 복제는 하지 않는다. `qat`에서도 같은 옵션을 사용할 수 있다.
 
-calibration manifest는 같은 배열 형식에서 `blur`만 있어도 된다. 이미지는
-`export.shape`의 고정 H/W로 미리 준비해야 하며 자동 resize/crop이나 무작위 증강을 하지 않는다.
-촬영 시퀀스·장소·날짜 단위로 학습·calibration·validation·test를 분리하고
-최종 test를 calibration이나 튜닝에 사용하지 않는다.
+폴더는 시작 시 한 번 탐색하며 sample마다 재탐색하지 않는다. `--num-workers`는 장비에
+맞춰 조절한다. worker에서는 OpenCV 내부 스레드·OpenCL을 꺼 중첩 병렬화를 피한다.
+crop 우선·uint8 유지는 [공식 성능 지침](https://albumentations.ai/docs/3-basic-usage/performance-tuning/)을 따른다.
+원본 이미지 decode 비용은 남으며 CPU 처리량과 합성 blur의 학습 효과는 아직 측정하지 않았다.
+
+calibration은 `data.calibration`의 실제 blur 이미지를 사용하며 `export.shape`에 맞는
+고정 H/W로 준비한다. 자동 resize/crop·합성 증강·평가 폴더 fallback을 하지 않는다.
+촬영 시퀀스·장소·날짜 단위로 train/calibration/val/test를 분리하고 임의 자동 split은 만들지 않는다.
+CLI에 명시한 값만 config를 덮어쓰며 `--no-amp`, `--no-synthetic-blur`, `qat --steps 0`도 보존한다.
 
 ## 모델 실행과 학습
 
@@ -101,7 +115,7 @@ uv run --locked --extra train modern-nafnet infer \
   --input data/blur.png --output artifacts/restored.png
 
 uv run --locked --extra train modern-nafnet train \
-  --config configs/experiment.json \
+  --config configs/train.json \
   --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth
 ```
 
@@ -111,25 +125,28 @@ AMP는 `torch.amp`를 사용하고 손실·LayerNorm 통계·TLC 누적의 정�
 
 ModelOpt INT8는 calibration 후 scale을 고정해 학습한다. Conv weight는 per-channel,
 activation은 per-tensor이고 attention의 `sca.*` quantizer는 제외한다.
-QAT 설정에는 `data.calibration_manifest`, `export.shape`,
-`quantization.calibration_batches`와 paired 학습 데이터가 필요하다.
+QAT 설정에는 `data.path/calibration`, `export.shape`,
+`quantization.calibration_batches`가 필요하다. 학습에는 paired 데이터 또는
+합성 blur를 켠 sharp-only 데이터를 사용한다.
 
 ```bash
 uv run --locked --extra qat modern-nafnet qat \
-  --config configs/experiment.json \
+  --config configs/train.json \
   --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth --steps 0
 
 uv run --locked --extra qat modern-nafnet qat \
-  --config configs/experiment.json --checkpoint artifacts/train/ptq.pt
+  --config configs/train.json --checkpoint artifacts/train/ptq.pt
 ```
 
 `--steps 0`은 부동소수점 체크포인트에서 calibration만 수행해 `ptq.pt`를 저장한다.
 학습 체크포인트에는 가중치·ModelOpt 구조·optimizer/scheduler/scaler·RNG·독립 증강 RNG·
-DataLoader generator·TLC kernel·설정·manifest hash를 함께 저장한다.
+DataLoader generator·TLC kernel·설정·데이터 파일 목록과 fingerprint를 함께 저장한다.
 완료한 epoch의 `last.pt`는 `--resume`로 재개한다. 중간 epoch의 `partial.pt`와
 `interrupted.pt`는 inference/export에 사용할 수 있으며 임의 step의 정확한 재개는 보장하지 않는다.
 정확한 증강 replay는 `num_workers=0`인 epoch 경계로 한정한다.
 합성 blur의 독립 RNG도 저장·복원하며 resume에는 기존 synthetic 설정을 유지해야 한다.
+데이터 fingerprint는 경로·파일 크기·수정시간을 검사하며, 이미지 내용을 전부 읽어 hash하지 않는다.
+데이터 snapshot이 없는 과거 학습 checkpoint는 `--resume` 대신 `--checkpoint`로 가중치를 사용한다.
 
 ## ONNX 전달
 
@@ -142,7 +159,7 @@ uv run --locked --extra export modern-nafnet export \
   --height 256 --width 256 --output artifacts/nafnet-fp32.onnx
 
 uv run --locked --extra export --extra qat modern-nafnet export \
-  --config configs/experiment.json --checkpoint artifacts/train/last.pt \
+  --config configs/train.json --checkpoint artifacts/train/last.pt \
   --quantized --height 256 --width 256 --output artifacts/nafnet-int8.onnx
 ```
 
@@ -166,12 +183,12 @@ TorchMetrics의 RGB 2D SSIM과 혼용하지 않는다. PSNR 무한대는 표준 
 ```bash
 uv run --locked --extra train modern-nafnet eval \
   --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
-  --manifest data/test.json --output artifacts/evaluation.json
+  --data data/GoPro --split test --output artifacts/evaluation.json
 ```
 
 각 명령의 정상 stdout은 JSON 결과이고 progress/logging은 stderr로 보낸다.
 inference는 PNG 등 이미지와 `.json` 기록을 남기며 입력·체크포인트를 덮어쓰지 않는다.
-평가 JSON도 manifest·체크포인트·blur/sharp 이미지를 덮어쓰지 않는다.
+평가 JSON도 체크포인트·blur/sharp 이미지를 덮어쓰지 않으며 실제 평가 파일 목록을 기록한다.
 
 pytest는 CLI/config, paired 정렬·seed·range, loss·metric, 모델 forward/gradient,
 체크포인트 복원, 작은 학습 재개, ModelOpt calibration/backward, FP/QDQ ONNX→ONNX Runtime

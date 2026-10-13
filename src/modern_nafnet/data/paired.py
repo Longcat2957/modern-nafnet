@@ -1,6 +1,5 @@
-"""Manifest paths are relative to the manifest, with no implicit resizing."""
+"""Directory image pairs, with no implicit resizing."""
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -9,41 +8,12 @@ import torch
 from torch.utils.data import Dataset
 
 from modern_nafnet.data.images import read_rgb
-
-
-def load_manifest(manifest: str | Path, *, allow_sharp_only: bool = False) -> list[dict[str, Any]]:
-    manifest = Path(manifest).resolve()
-    entries = json.loads(manifest.read_text(encoding="utf-8"))
-    if not isinstance(entries, list) or not entries:
-        raise ValueError("A paired manifest must contain a nonempty JSON array")
-    samples = []
-    names: set[str] = set()
-    for index, entry in enumerate(entries):
-        if not isinstance(entry, dict):
-            raise ValueError(f"Manifest entry {index} must be an object")
-        sample: dict[str, Any] = {}
-        for key in ("blur", "sharp"):
-            if key == "blur" and key not in entry and allow_sharp_only:
-                continue
-            value = entry.get(key)
-            if not isinstance(value, str) or not value:
-                raise ValueError(f"Manifest entry {index} needs a nonempty {key} path")
-            path = (manifest.parent / value).resolve()
-            if not path.is_file():
-                raise FileNotFoundError(f"Manifest entry {index} {key}: {path}")
-            sample[key] = path
-        name = entry.get("name", entry.get("blur", entry.get("sharp")))
-        if not isinstance(name, str) or not name or name in names:
-            raise ValueError(f"Manifest entry {index} needs a unique nonempty name")
-        names.add(name)
-        sample["name"] = name
-        samples.append(sample)
-    return samples
+from modern_nafnet.data.sources import load_samples
 
 
 class PairedImageDataset(Dataset):
-    def __init__(self, manifest: str | Path, transform: Any = None, *, blur_transform: Any = None):
-        self.samples = load_manifest(manifest, allow_sharp_only=blur_transform is not None)
+    def __init__(self, source: str | Path, transform: Any = None, *, blur_transform: Any = None):
+        self.samples = load_samples(source, allow_sharp_only=blur_transform is not None)
         self.transform = transform
         self.blur_transform = blur_transform
 

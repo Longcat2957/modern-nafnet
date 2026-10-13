@@ -1,0 +1,8 @@
+{
+  "data": {
+    "path": "data/deblur"
+  },
+  "training": {
+    "checkpoint": "artifacts/checkpoints/NAFNet-GoPro-width32.pth"
+  }
+}

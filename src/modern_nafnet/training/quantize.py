@@ -1,6 +1,5 @@
 """ModelOpt static symmetric INT8 calibration and state restoration."""
 
-import json
 import sys
 from contextlib import redirect_stdout
 from copy import deepcopy
@@ -118,22 +117,26 @@ def calibrate_int8(model: torch.nn.Module, inputs) -> torch.nn.Module:
     return model
 
 
-def calibration_inputs(manifest: str | Path, shape: list[int], device: str, limit: int):
-    """Read blur-only or paired manifests without changing their image geometry."""
+def calibration_inputs(
+    source: str | Path,
+    shape: list[int],
+    device: str,
+    limit: int,
+    *,
+    samples: list[dict] | None = None,
+):
+    """Read real blur images from a folder without changing their image geometry."""
     from modern_nafnet.data.images import read_rgb
+    from modern_nafnet.data.sources import load_samples
 
     if len(shape) != 4 or shape[:2] != [1, 3] or any(size <= 0 for size in shape):
         raise ValueError("Calibration shape must be [1, 3, height, width]")
     if limit < 1:
         raise ValueError("calibration_batches must be positive")
-    manifest = Path(manifest).resolve()
-    entries = json.loads(manifest.read_text(encoding="utf-8"))
-    if not isinstance(entries, list) or not entries:
-        raise ValueError("Calibration manifest must contain a nonempty JSON array")
-    for index, entry in enumerate(entries[:limit]):
-        if not isinstance(entry, dict) or not isinstance(entry.get("blur"), str):
-            raise ValueError(f"Calibration entry {index} needs a blur path")
-        image = read_rgb((manifest.parent / entry["blur"]).resolve())
+    if samples is None:
+        samples = load_samples(source, blur_only=True)
+    for index, sample in enumerate(samples[:limit]):
+        image = read_rgb(sample["blur"])
         if list(image.shape[:2]) != shape[2:]:
             raise ValueError(
                 f"Calibration image {index} has shape {image.shape[:2]}, expected {shape[2:]}; "
