@@ -33,7 +33,7 @@ def _restore_transform(transform, state) -> None:
         _restore_transform(child, child_state)
 
 
-def rng_state(generator: torch.Generator, transform=None) -> dict:
+def rng_state(generator: torch.Generator, transform=None, blur_transform=None) -> dict:
     numpy_state = np.random.get_state()
     return {
         "python": random.getstate(),
@@ -42,10 +42,15 @@ def rng_state(generator: torch.Generator, transform=None) -> dict:
         "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_initialized() else [],
         "data_generator": generator.get_state(),
         "augmentation": _transform_state(transform),
+        "synthetic_blur": _transform_state(blur_transform),
     }
 
 
-def restore_rng(state: dict, generator: torch.Generator, transform=None) -> None:
+def restore_rng(
+    state: dict, generator: torch.Generator, transform=None, blur_transform=None
+) -> None:
+    if blur_transform is not None and state.get("synthetic_blur") is None:
+        raise ValueError("The checkpoint is missing the synthetic blur RNG state")
     random.setstate(state["python"])
     numpy_state = state["numpy"]
     np.random.set_state(
@@ -58,6 +63,7 @@ def restore_rng(state: dict, generator: torch.Generator, transform=None) -> None
         torch.cuda.set_rng_state_all(state["cuda"])
     generator.set_state(state["data_generator"])
     _restore_transform(transform, state["augmentation"])
+    _restore_transform(blur_transform, state.get("synthetic_blur"))
 
 
 def save_checkpoint(
@@ -89,8 +95,9 @@ def save_checkpoint(
 def run_train(config: dict, *, qat: bool = False) -> dict:
     from torch.utils.data import DataLoader
 
-    from drone_deblur.data.augment import build_train_transform
-    from drone_deblur.data.paired import PairedImageDataset
+    from drone_deblur.config import DEFAULT_CONFIG
+    from drone_deblur.data.augment import build_blur_transform, build_train_transform
+    from drone_deblur.data.paired import PairedImageDataset, init_data_worker
     from drone_deblur.models.nafnet import NAFNetLocal, check_checkpoint_metadata, load_checkpoint
     from drone_deblur.training.losses import PSNRLoss
 
@@ -191,7 +198,15 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
     if not data.get("train_manifest"):
         raise ValueError("data.train_manifest is required for supervised training/QAT")
     transform = build_train_transform(data["crop_size"], seed)
-    dataset = PairedImageDataset(data["train_manifest"], transform=transform)
+    synthetic_settings = data.get("synthetic_blur", DEFAULT_CONFIG["data"]["synthetic_blur"])
+    blur_transform = (
+        build_blur_transform(synthetic_settings["blur_range"], seed + 1)
+        if synthetic_settings["enabled"]
+        else None
+    )
+    dataset = PairedImageDataset(
+        data["train_manifest"], transform=transform, blur_transform=blur_transform
+    )
     batch_size = settings["batch_size"]
     workers = settings.get("num_workers", 0)
     if batch_size < 1 or workers < 0:
@@ -202,6 +217,7 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
         shuffle=True,
         generator=generator,
         num_workers=workers,
+        worker_init_fn=init_data_worker,
         persistent_workers=False,
         drop_last=False,
     )
@@ -225,13 +241,18 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
             or previous["data"]["crop_size"] != data["crop_size"]
         ):
             raise ValueError("Resume requires the original model and crop configuration")
+        previous_synthetic = previous["data"].get(
+            "synthetic_blur", DEFAULT_CONFIG["data"]["synthetic_blur"]
+        )
+        if previous_synthetic != synthetic_settings:
+            raise ValueError("Resume requires the original data.synthetic_blur configuration")
         if state["manifest_sha256"] != manifest_hash:
             raise ValueError("The training manifest changed since the checkpoint")
         optimizer.load_state_dict(state["optimizer"])
         scheduler.load_state_dict(state["scheduler"])
         scaler.load_state_dict(state["scaler"])
         step, epoch = state["step"], state["epoch"]
-        restore_rng(state["rng"], generator, transform)
+        restore_rng(state["rng"], generator, transform, blur_transform)
         if step >= steps:
             raise ValueError("The checkpoint has already reached training.steps")
     loss_fn = PSNRLoss()
@@ -246,7 +267,7 @@ def run_train(config: dict, *, qat: bool = False) -> dict:
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict(),
             "scaler": scaler.state_dict(),
-            "rng": rng_state(generator, transform),
+            "rng": rng_state(generator, transform, blur_transform),
             "manifest_sha256": manifest_hash,
             "source_checkpoint_sha256": source_hash,
             "calibration_manifest_sha256": sha256(data["calibration_manifest"])

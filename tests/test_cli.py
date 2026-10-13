@@ -72,6 +72,31 @@ def test_qat_cli_checkpoint_overrides_quantization_source(tmp_path, monkeypatch)
     assert json.loads(result.stdout)["checkpoint"] == str(source)
 
 
+@pytest.mark.parametrize("command", ["train", "qat"])
+@pytest.mark.parametrize(
+    "flag,enabled", [("--synthetic-blur", True), ("--no-synthetic-blur", False)]
+)
+def test_synthetic_blur_and_zero_workers_override_json(
+    tmp_path, monkeypatch, command, flag, enabled
+):
+    import types
+
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {"data": {"synthetic_blur": {"enabled": not enabled}}, "training": {"num_workers": 3}}
+        )
+    )
+    stub = types.ModuleType("drone_deblur.training.loop")
+    stub.run_train = lambda config, **kwargs: config
+    monkeypatch.setitem(sys.modules, "drone_deblur.training.loop", stub)
+    result = runner.invoke(app, [command, "--config", str(path), flag, "--num-workers", "0"])
+    assert result.exit_code == 0, result.output
+    config = json.loads(result.stdout)
+    assert config["data"]["synthetic_blur"]["enabled"] is enabled
+    assert config["training"]["num_workers"] == 0
+
+
 def test_missing_dependency_reports_profile_on_stderr(monkeypatch):
     import types
 
@@ -116,6 +141,10 @@ def test_unknown_config_fails(tmp_path):
         {"inference": {"checkpoint": {"path": "weights.pt"}}},
         {"model": {"enc_blk_nums": [1, 1.0]}},
         {"model": {"train_size": [1, 3, 0, 256]}},
+        {"data": {"synthetic_blur": {"enabled": "true"}}},
+        {"data": {"synthetic_blur": {"blur_range": [3, 8]}}},
+        {"data": {"synthetic_blur": {"blur_range": [9, 3]}}},
+        {"data": {"synthetic_blur": {"blur_range": [3]}}},
     ],
 )
 def test_json_configuration_rejects_wrong_leaf_types(tmp_path, document):

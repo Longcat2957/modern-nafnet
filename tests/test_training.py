@@ -10,7 +10,7 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("albumentations")
 
 from drone_deblur.config import DEFAULT_CONFIG
-from drone_deblur.data.augment import build_train_transform
+from drone_deblur.data.augment import build_blur_transform, build_train_transform
 from drone_deblur.data.images import write_rgb
 from drone_deblur.training.loop import restore_rng, rng_state, run_train
 
@@ -99,7 +99,8 @@ def test_partial_epoch_export_checkpoint_cannot_claim_exact_resume(training_case
         run_train(training_case)
 
 
-def test_epoch_checkpoint_survives_failure_and_resumes(training_case, monkeypatch):
+@pytest.mark.parametrize("synthetic", [False, True])
+def test_epoch_checkpoint_survives_failure_and_resumes(training_case, monkeypatch, synthetic):
     from drone_deblur.training import losses
 
     original = losses.PSNRLoss
@@ -114,6 +115,17 @@ def test_epoch_checkpoint_survives_failure_and_resumes(training_case, monkeypatc
             return super().forward(prediction, target)
 
     training_case["training"]["steps"] = 2
+    if synthetic:
+        manifest = Path(training_case["data"]["train_manifest"])
+        manifest.write_text('[{"sharp":"sharp.png"}]')
+        write_rgb(
+            manifest.parent / "sharp.png",
+            np.random.default_rng(10).integers(0, 256, (12, 12, 3), dtype=np.uint8),
+        )
+        training_case["data"]["synthetic_blur"].update(enabled=True, blur_range=[3, 7])
+    uninterrupted = deepcopy(training_case)
+    uninterrupted["training"]["output_dir"] += "-uninterrupted"
+    expected = torch.load(run_train(uninterrupted)["checkpoint"], weights_only=True)
     monkeypatch.setattr(losses, "PSNRLoss", InterruptedLoss)
     with pytest.raises(RuntimeError, match="simulated interruption"):
         run_train(training_case)
@@ -123,19 +135,58 @@ def test_epoch_checkpoint_survives_failure_and_resumes(training_case, monkeypatc
     assert checkpoint["training_state"]["batch_in_epoch"] == 0
     monkeypatch.setattr(losses, "PSNRLoss", original)
     training_case["training"]["resume"] = str(boundary)
+    if synthetic:
+        changed = deepcopy(training_case)
+        changed["data"]["synthetic_blur"]["blur_range"] = [3, 9]
+        with pytest.raises(ValueError, match="original data.synthetic_blur"):
+            run_train(changed)
+    else:
+        # Paired checkpoints from before synthetic blur support remain resumable.
+        checkpoint["config"]["data"].pop("synthetic_blur")
+        checkpoint["training_state"]["rng"].pop("synthetic_blur")
+        torch.save(checkpoint, boundary)
     result = run_train(training_case)
     assert result["step"] == 2 and result["epoch"] == 2
+    actual = torch.load(result["checkpoint"], weights_only=True)
+    for key, value in expected["state_dict"].items():
+        assert torch.equal(value, actual["state_dict"][key])
+
+
+def test_sharp_only_training_with_worker_and_saved_degradation_rng(training_case):
+    manifest = Path(training_case["data"]["train_manifest"])
+    manifest.write_text('[{"sharp":"sharp.png"}]')
+    training_case["data"]["synthetic_blur"]["enabled"] = True
+    training_case["training"]["num_workers"] = 1
+    result = run_train(training_case)
+    saved = torch.load(result["checkpoint"], weights_only=True)
+    assert result["step"] == 1 and result["resumable"]
+    assert saved["config"]["data"]["synthetic_blur"]["enabled"]
+    assert saved["training_state"]["rng"]["synthetic_blur"]["children"]
+    assert not saved["training_state"]["worker_state_saved"]
 
 
 def test_independent_augmentation_and_data_rng_restore():
     transform = build_train_transform(8, 14)
+    blur_transform = build_blur_transform([3, 7], 15)
     generator = torch.Generator().manual_seed(77)
     image = np.arange(12 * 12 * 3, dtype=np.uint8).reshape(12, 12, 3)
-    state = rng_state(generator, transform)
-    expected = transform(image=image, sharp=image)["image"]
+    state = rng_state(generator, transform, blur_transform)
+    expected_sharp = transform(image=image, sharp=image)["sharp"]
+    expected = blur_transform(image=expected_sharp)["image"]
     expected_order = torch.randperm(9, generator=generator)
     transform(image=image, sharp=image)
-    restore_rng(state, generator, transform)
-    actual = transform(image=image, sharp=image)["image"]
+    blur_transform(image=expected_sharp)
+    restore_rng(state, generator, transform, blur_transform)
+    actual_sharp = transform(image=image, sharp=image)["sharp"]
+    actual = blur_transform(image=actual_sharp)["image"]
+    assert np.array_equal(actual_sharp, expected_sharp)
     assert np.array_equal(actual, expected)
     assert torch.equal(torch.randperm(9, generator=generator), expected_order)
+
+
+def test_synthetic_resume_rejects_missing_rng_state():
+    transform = build_blur_transform([3, 7], 15)
+    generator = torch.Generator().manual_seed(77)
+    state = rng_state(generator)
+    with pytest.raises(ValueError, match="missing the synthetic blur RNG"):
+        restore_rng(state, generator, blur_transform=transform)

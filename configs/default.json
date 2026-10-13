@@ -26,7 +26,11 @@
   "data": {
     "train_manifest": null,
     "calibration_manifest": null,
-    "crop_size": 256
+    "crop_size": 256,
+    "synthetic_blur": {
+      "enabled": false,
+      "blur_range": [3, 15]
+    }
   },
   "training": {
     "checkpoint": null,

@@ -49,6 +49,39 @@ manifest 파일의 디렉터리**를 기준으로 한다. `name`은 선택 사�
 contiguous CHW float `[0,1]`로 변환하며 ImageNet 정규화를 적용하지 않는다.
 파일 누락·읽기 실패·쌍의 크기 불일치는 오류로 처리한다.
 
+sharp 원본만 있다면 `data.synthetic_blur.enabled` 또는 `--synthetic-blur`로
+학습 중 blur/sharp 쌍을 생성한다. manifest에 `blur`가 없는 항목에만 적용하므로
+같은 배열에 실제 paired 데이터도 섞을 수 있다. `blur`를 지정한 항목은 그대로 사용하며
+잘못된 blur 경로를 합성 입력으로 대체하지 않는다. 원본은 깨끗한 sharp GT여야 한다.
+
+```json
+[
+  {"name": "clean-001", "sharp": "sharp/0001.png"},
+  {"name": "real-002", "blur": "blur/0002.png", "sharp": "sharp/0002.png"}
+]
+```
+
+`data.synthetic_blur.blur_range`는 MotionBlur의 홀수 kernel 크기 범위이며 기본값은
+`[3,15]`다. 원본을 한 번 읽고 공유 RandomCrop/D4를 먼저 적용한 뒤, uint8 patch의
+입력에만 AlbumentationsX MotionBlur를 적용한다. sharp GT와 원본 파일은 수정하지 않는다.
+쌍을 디스크에 미리 복제하지 않으며, 매 sample마다 blur 방향·크기를 샘플링한다.
+
+```bash
+uv run --locked --extra train drone-deblur train \
+  --config configs/experiment.json \
+  --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
+  --synthetic-blur --num-workers 2
+```
+
+동일 옵션을 `qat`에서도 사용할 수 있다. `--no-synthetic-blur`는 JSON의 활성화를
+명시적으로 끈다. 기본 `num_workers=0`은 주 프로세스에서 동기 처리하므로 CUDA 학습에서
+입력 준비가 병목이면 `--num-workers`로 조절한다. 위의 2는 시작 예시이며 장비에 맞춰 정한다.
+각 worker에서는 OpenCV 내부 스레드와 OpenCL을 꺼 중첩 병렬화를 피한다. crop 우선·uint8
+유지는 [공식 성능 지침](https://albumentations.ai/docs/3-basic-usage/performance-tuning/)을 따른다.
+원본 전체의 이미지 decode 비용은 남으며 처리량 개선 수치는 아직 측정하지 않았다.
+합성 MotionBlur가 실제 드론 블러 분포를 재현한다고 가정하지 않는다. 평가에는 실제 paired
+데이터, calibration에는 별도로 준비한 실제 blur manifest를 사용한다.
+
 calibration manifest는 같은 배열 형식에서 `blur`만 있어도 된다. 이미지는
 `export.shape`의 고정 H/W로 미리 준비해야 하며 자동 resize/crop이나 무작위 증강을 하지 않는다.
 촬영 시퀀스·장소·날짜 단위로 학습·calibration·validation·test를 분리하고
@@ -96,6 +129,7 @@ DataLoader generator·TLC kernel·설정·manifest hash를 함께 저장한다.
 완료한 epoch의 `last.pt`는 `--resume`로 재개한다. 중간 epoch의 `partial.pt`와
 `interrupted.pt`는 inference/export에 사용할 수 있으며 임의 step의 정확한 재개는 보장하지 않는다.
 정확한 증강 replay는 `num_workers=0`인 epoch 경계로 한정한다.
+합성 blur의 독립 RNG도 저장·복원하며 resume에는 기존 synthetic 설정을 유지해야 한다.
 
 ## ONNX 전달
 

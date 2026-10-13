@@ -57,6 +57,10 @@ def train(
     steps: Annotated[int | None, typer.Option(min=1)] = None,
     device: Annotated[str | None, typer.Option()] = None,
     amp: Annotated[bool | None, typer.Option("--amp/--no-amp")] = None,
+    synthetic_blur: Annotated[
+        bool | None, typer.Option("--synthetic-blur/--no-synthetic-blur")
+    ] = None,
+    num_workers: Annotated[int | None, typer.Option(min=0)] = None,
 ):
     """Fine-tune a floating point model using paired images."""
 
@@ -72,7 +76,9 @@ def train(
                     "steps": steps,
                     "device": device,
                     "amp": amp,
-                }
+                    "num_workers": num_workers,
+                },
+                "data": {"synthetic_blur": {"enabled": synthetic_blur}},
             },
         )
         return run_train(settings)
@@ -87,6 +93,10 @@ def qat(
     resume: Checkpoint = None,
     steps: Annotated[int | None, typer.Option(min=0)] = None,
     device: Annotated[str | None, typer.Option()] = None,
+    synthetic_blur: Annotated[
+        bool | None, typer.Option("--synthetic-blur/--no-synthetic-blur")
+    ] = None,
+    num_workers: Annotated[int | None, typer.Option(min=0)] = None,
 ):
     """Calibrate INT8 and fine-tune; --steps 0 saves a PTQ checkpoint."""
 
@@ -101,8 +111,10 @@ def qat(
                     "resume": resume,
                     "steps": steps,
                     "device": device,
+                    "num_workers": num_workers,
                 },
                 "quantization": {"checkpoint": checkpoint},
+                "data": {"synthetic_blur": {"enabled": synthetic_blur}},
             },
         )
         return run_train(settings, qat=True)

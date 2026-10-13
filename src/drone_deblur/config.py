@@ -15,7 +15,12 @@ DEFAULT_CONFIG = {
         "train_size": [1, 3, 256, 256],
         "fast_imp": False,
     },
-    "data": {"train_manifest": None, "calibration_manifest": None, "crop_size": 256},
+    "data": {
+        "train_manifest": None,
+        "calibration_manifest": None,
+        "crop_size": 256,
+        "synthetic_blur": {"enabled": False, "blur_range": [3, 15]},
+    },
     "training": {
         "checkpoint": None,
         "resume": None,
@@ -60,9 +65,22 @@ def _validate_value(name: str, value) -> None:
     for part in name.split("."):
         default = default[part]
     key = name.rsplit(".", 1)[-1]
-    if key in {"checkpoint", "resume", "output_dir", "input", "output", "manifest"} or key.endswith(
-        "_manifest"
-    ):
+    if name == "data.synthetic_blur.blur_range":
+        if (
+            not isinstance(value, list)
+            or len(value) != 2
+            or any(type(n) is not int or n < 3 or n % 2 == 0 for n in value)
+            or value[0] > value[1]
+        ):
+            raise ValueError(f"Configuration {name} needs two ordered odd integers >= 3")
+    elif key in {
+        "checkpoint",
+        "resume",
+        "output_dir",
+        "input",
+        "output",
+        "manifest",
+    } or key.endswith("_manifest"):
         if value is None and default is None:
             return
         if not isinstance(value, (str, Path)) or not str(value):

@@ -99,7 +99,8 @@
 - OpenCV 배포 패키지는 `opencv-python-headless` 하나만 사용한다. 다른 `opencv-python*`/`opencv-contrib-python*`와 `cv2` namespace를 공유하므로 중복 설치를 금지한다. Orin Python runner에서 OpenCV가 필요하면 aarch64 wheel의 ABI/glibc와 NumPy 호환성을 확인하고, 예상치 못한 source build는 허용하지 않는다. PyPI headless wheel을 CUDA OpenCV 빌드로 가정하지 않는다.
 - `albumentationsx[headless]`와 직접 사용하는 OpenCV headless의 요구 버전을 uv가 하나의 배포 패키지로 해결하게 한다. legacy `albumentations`를 함께 설치하지 않는다. 설치명은 `albumentationsx`, 사용 API는 `import albumentations as A`다. [공식 설치](https://albumentations.ai/docs/1-introduction/installation/), [2.5.1 의존성](https://github.com/albumentations-team/AlbumentationsX/blob/2.5.1/pyproject.toml)
 - 이미지 읽기는 BGR → RGB를 명시한다. 학습 paired geometry는 `A.Compose(..., additional_targets={"sharp": "image"})` 한 번에 `image=blur, sharp=sharp`를 전달한다. 기본은 square `RandomCrop` 뒤 `A.D4(p=1)`로 원본 flip/transpose의 8개 방향 균등 분포를 유지한다. 별도 호출로 blur/sharp에 각각 난수를 적용하지 않는다.
-- 공통 geometry, 공통 photometric, blur 입력에만 적용하는 degradation을 구분한다. 초기에는 원본의 기하 증강만 사용한다. RGB sharp를 mask로 매핑하지 않으며 calibration/평가에는 학습용 무작위 증강을 적용하지 않는다.
+- 공통 geometry, 공통 photometric, blur 입력에만 적용하는 degradation을 구분한다. 실제 paired 데이터는 원본의 기하 증강만 사용한다. `data.synthetic_blur.enabled`/`--synthetic-blur`로 sharp-only 학습 항목에 한해 shared crop/D4 후 별도 AlbumentationsX MotionBlur를 입력에만 적용한다. GT는 blur하지 않으며 실제 paired 항목을 추가로 흐리게 하지 않는다. RGB sharp를 mask로 매핑하지 않으며 calibration/평가에는 학습용 무작위 증강을 적용하지 않는다.
+- 합성 blur는 uint8 crop에서 처리해 원해상도 blur 비용을 피하고, 마지막에 float `[0,1]`로 변환한다. sharp-only 이미지는 한 번만 읽으며 쌍을 디스크에 복제하지 않는다. 다중 DataLoader worker에서는 OpenCV 내부 스레드·OpenCL을 꺼 중첩 병렬화를 피한다. worker 수는 설정으로 조절하며 CPU 처리량·합성 분포의 학습 효과는 추후 실측한다. geometry와 blur의 독립 RNG를 저장·복원하고 기존 paired checkpoint 재개 호환성을 유지한다.
 - `Compose(seed=...)`와 DataLoader 전용 `torch.Generator`의 seed를 설정하고 worker 수·persistent_workers·sampler·batch/drop_last·데이터 순서를 기록한다. AlbumentationsX의 worker별 seed 처리를 사용하고 매 sample/worker를 같은 seed로 재설정하지 않는다. Compose의 난수는 NumPy 전역 seed만으로 제어되지 않는다. [재현성 지침](https://albumentations.ai/docs/4-advanced-guides/reproducibility/)
 - `ToTensorV2`는 HWC → CHW 변환을 담당하며 `[0,1]` 정규화를 대신하지 않는다. RGB float range 변환을 한 번 명시하고 ImageNet mean/std 정규화를 적용하지 않는다. 배열은 contiguous를 보장한다. 이를 위해 torchvision을 추가하지 않는다. [2.5.1 ToTensorV2](https://github.com/albumentations-team/AlbumentationsX/blob/2.5.1/albumentations/pytorch/transforms.py)
 - Rich는 stderr에 사람용 progress/logging을 출력하고 정상 실행의 stdout에는 기계가 읽는 결과만 둔다. Typer help는 표준 help 출력으로 유지한다. `Console(stderr=True)`와 `Progress(..., redirect_stdout=False)`를 사용한다. 비 TTY에서는 live progress를 비활성화하고 benchmark 측정 구간 안에서 출력·refresh·추가 GPU 동기화를 하지 않는다. Typer CLI와 Rich를 통합하고 별도 TUI framework를 추가하지 않는다.
@@ -107,7 +108,7 @@
 
 ## 데이터 계약과 실행 기록
 
-- calibration에는 blur-only 데이터를 사용할 수 있지만, PSNRLoss 기반 supervised 학습/QAT와 PSNR/SSIM 품질 평가에는 정렬된 blur/sharp 쌍이 필요하다. 파일 쌍·크기·RGB/range·읽기 실패를 검증하고 누락 샘플을 조용히 건너뛰지 않는다.
+- calibration에는 blur-only 데이터를 사용할 수 있다. supervised 학습/QAT는 실제 정렬된 blur/sharp 쌍 또는 옵션으로 활성화한 sharp-only 합성 쌍을 사용한다. 합성 manifest는 `sharp` 필수·`blur` 생략으로 표시하며 실제 paired 항목과 혼합할 수 있다. 명시한 blur 경로가 잘못된 경우에는 합성으로 대체하지 않는다. PSNR/SSIM 품질 평가는 실제 정렬된 blur/sharp 쌍을 요구한다. 파일 쌍·크기·RGB/range·읽기 실패를 검증하고 누락 샘플을 조용히 건너뛰지 않는다.
 - 촬영 시퀀스·장소·날짜를 기준으로 train/calibration/validation/test manifest를 고정한다. 같은 영상의 인접 프레임을 학습과 최종 평가에 나누지 않으며, 최종 test는 calibration·튜닝에 사용하지 않는다.
 - 드론 정답 쌍이 없다면 paired GoPro로 QAT하고 드론 데이터는 calibration·시각·추론 평가에 사용한다. 정답 없는 드론 영상의 PSNR/SSIM을 보고하지 않는다.
 - 각 실행은 `artifacts/<run>/`에 적용된 설정, upstream commit·checkpoint SHA-256, 데이터 manifest 식별자, 패키지·장비·SDK 버전, 입력 shape/dtype, 평가 protocol, 결과 JSON을 남긴다. ONNX·엔진 hash와 builder/typing 설정도 기록한다. 외부 실험 추적 서버는 초기 범위에 넣지 않는다.

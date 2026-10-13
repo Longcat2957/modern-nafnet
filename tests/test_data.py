@@ -5,9 +5,9 @@ import numpy as np
 import pytest
 import torch
 
-from drone_deblur.data.augment import build_train_transform
+from drone_deblur.data.augment import build_blur_transform, build_train_transform
 from drone_deblur.data.images import read_rgb, rgb_to_uint8, write_rgb
-from drone_deblur.data.paired import PairedImageDataset
+from drone_deblur.data.paired import PairedImageDataset, init_data_worker
 
 
 def _manifest(tmp_path, blur, sharp):
@@ -80,3 +80,74 @@ def test_reject_invalid_crop_and_duplicate_names(tmp_path):
     manifest.write_text(json.dumps([entry, entry]))
     with pytest.raises(ValueError, match="unique"):
         PairedImageDataset(manifest)
+
+
+def test_sharp_only_blur_is_seeded_crop_first_and_preserves_gt(tmp_path, monkeypatch):
+    from drone_deblur.data import paired
+
+    sharp = np.random.default_rng(4).integers(0, 256, (40, 48, 3), dtype=np.uint8)
+    write_rgb(tmp_path / "sharp.png", sharp)
+    manifest = tmp_path / "sharp.json"
+    manifest.write_text('[{"sharp":"sharp.png"}]')
+    geometry = build_train_transform(16, seed=42)
+    degradation = build_blur_transform([7, 7], seed=43)
+    expected_gt = geometry(image=sharp, sharp=sharp)["sharp"]
+    expected_blur = degradation(image=expected_gt)["image"]
+    reads, blur_shapes = [], []
+    original_read = paired.read_rgb
+
+    def read_once(path):
+        reads.append(path)
+        return original_read(path)
+
+    def check_crop_first(**kwargs):
+        blur_shapes.append(kwargs["image"].shape)
+        return build_blur_transform([7, 7], seed=43)(**kwargs)
+
+    monkeypatch.setattr(paired, "read_rgb", read_once)
+    dataset = PairedImageDataset(
+        manifest, build_train_transform(16, seed=42), blur_transform=check_crop_first
+    )
+    pair = dataset[0]
+    assert len(reads) == 1 and blur_shapes == [(16, 16, 3)]
+    assert pair["name"] == "sharp.png"
+    assert torch.equal(pair["sharp"], torch.from_numpy(expected_gt.copy()).permute(2, 0, 1) / 255)
+    assert torch.equal(pair["blur"], torch.from_numpy(expected_blur).permute(2, 0, 1) / 255)
+    assert not torch.equal(pair["blur"], pair["sharp"])
+    assert pair["blur"].is_contiguous() and pair["sharp"].is_contiguous()
+    assert pair["blur"].dtype == torch.float32
+    assert 0 <= pair["blur"].min() <= pair["blur"].max() <= 1
+    np.testing.assert_array_equal(read_rgb(tmp_path / "sharp.png"), sharp)
+
+
+def test_mixed_manifest_blurs_only_missing_inputs(tmp_path):
+    rgb = np.random.default_rng(2).integers(0, 256, (12, 12, 3), dtype=np.uint8)
+    manifest = _manifest(tmp_path, rgb, 255 - rgb)
+    entries = json.loads(manifest.read_text())
+    entries.append({"name": "synthetic", "sharp": "sharp.png"})
+    manifest.write_text(json.dumps(entries))
+    dataset = PairedImageDataset(manifest, blur_transform=build_blur_transform([7, 7], seed=3))
+    real, synthetic = dataset[0], dataset[1]
+    assert torch.allclose(real["blur"] + real["sharp"], torch.ones_like(real["sharp"]))
+    assert torch.equal(real["sharp"], synthetic["sharp"])
+    assert not torch.equal(synthetic["blur"], synthetic["sharp"])
+    with pytest.raises(ValueError, match="blur path"):
+        PairedImageDataset(manifest)
+    entries[1]["blur"] = None
+    manifest.write_text(json.dumps(entries))
+    with pytest.raises(ValueError, match="blur path"):
+        PairedImageDataset(manifest, blur_transform=build_blur_transform([7, 7], seed=3))
+
+
+def test_worker_init_disables_nested_opencv_threads(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cv2, "setNumThreads", lambda n: calls.append(("threads", n)))
+    monkeypatch.setattr(cv2.ocl, "setUseOpenCL", lambda enabled: calls.append(("opencl", enabled)))
+    init_data_worker(0)
+    assert calls == [("threads", 0), ("opencl", False)]
+
+
+@pytest.mark.parametrize("blur_range", [[2, 7], [3, 4], [7, 3], [3], [True, 7], [3, 7.0]])
+def test_invalid_blur_range_is_not_silently_adjusted(blur_range):
+    with pytest.raises(ValueError, match="blur_range"):
+        build_blur_transform(blur_range, seed=1)
