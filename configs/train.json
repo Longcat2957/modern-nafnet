@@ -3,6 +3,6 @@
     "path": "data/deblur"
   },
   "training": {
-    "checkpoint": "artifacts/checkpoints/NAFNet-GoPro-width32.pth"
+    "checkpoint": "weights/nafnet-gopro-width32.pt"
   }
 }

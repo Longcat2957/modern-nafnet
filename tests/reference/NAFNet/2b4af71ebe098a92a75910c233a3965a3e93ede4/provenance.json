@@ -1,0 +1,37 @@
+{
+  "repository": "https://github.com/megvii-research/NAFNet",
+  "commit": "2b4af71ebe098a92a75910c233a3965a3e93ede4",
+  "usage": "Unmodified development-only oracle; never imported by production code",
+  "files": [
+    {
+      "path": "basicsr/models/archs/NAFNet_arch.py",
+      "git_blob_sha": "5735e0963b4b1db46f34807e6607c04e70702e91",
+      "url": "https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/basicsr/models/archs/NAFNet_arch.py"
+    },
+    {
+      "path": "basicsr/models/archs/local_arch.py",
+      "git_blob_sha": "bc459c64a200b9af2870cc1f405fc1df17c6a83a",
+      "url": "https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/basicsr/models/archs/local_arch.py"
+    },
+    {
+      "path": "basicsr/models/archs/arch_util.py",
+      "git_blob_sha": "09beabfb4fb14e5323dc2a6a4234bddbd43138c2",
+      "url": "https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/basicsr/models/archs/arch_util.py"
+    },
+    {
+      "path": "LICENSE",
+      "git_blob_sha": "50927b3b1ae927035dc0528569f40810c19132a0",
+      "url": "https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/LICENSE"
+    },
+    {
+      "path": "basicsr/models/losses/losses.py",
+      "git_blob_sha": "3d5b688dc9c0ffb2176d1a4e5b63d89a22528e91",
+      "url": "https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/basicsr/models/losses/losses.py"
+    },
+    {
+      "path": "basicsr/metrics/psnr_ssim.py",
+      "git_blob_sha": "317a7b5e324e043cb6bd21b8713ca0012facafcc",
+      "url": "https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/basicsr/metrics/psnr_ssim.py"
+    }
+  ]
+}

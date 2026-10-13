@@ -23,9 +23,10 @@ The upstream SSIM source also attributes
 https://github.com/mayorx/matlab_ssim_pytorch_implementation/blob/main/calc_ssim.py.
 This attribution is retained in `evaluation/metrics.py`.
 
-Production files were reimplemented from the pinned references. The development
-oracle snapshot is stored separately under ignored `artifacts/reference/`; it is
-never imported by production code. Tests compare outputs and gradients against it.
+Production files were reimplemented from the pinned references. The unmodified
+development oracle snapshot is bundled under `tests/reference/NAFNet/<commit>/`;
+it is never imported by production code. Tests compare outputs and gradients
+against it. The original license is included alongside the reference files.
 The SSIM/PSNR range heuristic (`pred.max() <= 1`) is preserved for exact reference
 compatibility, including the very dark uint8 image edge case.
 
@@ -34,12 +35,21 @@ compatibility, including the very dark uint8 image edge case.
 - Asset: NAFNet GoPro width32, linked by the pinned upstream README.
 - Source: https://drive.google.com/file/d/1Fr2QadtDCEXg6iwWX8OzeZLbHOx2t5Bj/view
 - SHA-256: `19394e6155d12ef6371d1d57496f87f0ec88f92bdffa27c0792690722d5d1a5c`
-- Local validation asset: `artifacts/checkpoints/NAFNet-GoPro-width32.pth` (ignored).
+- Bundled conversion: `weights/nafnet-gopro-width32.pt` (68,683,541 bytes).
+- Converted SHA-256: `f6abb1b16853670e8a03bc0842e4d948f0276a1110999c5886fa87f73cb760cb`.
+- Conversion: official `params` repackaged as `state_dict`, with `config.model`,
+  initialized `tlc_kernels` and original provenance. All 664 tensors retain their
+  original FP32 dtype and values. No retraining, precision reduction or
+  quantization was performed.
 
 The checkpoint is an external asset; the project's own AGPL metadata does not
-relicense it. The upstream repository contains the MIT/Apache notices above;
-no separate checkpoint license notice was identified in its README. The weights
-are downloaded for local validation and are not bundled in this source package.
+relicense it. The [pinned upstream LICENSE](https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/LICENSE)
+contains the MIT/Apache notices above. No separate checkpoint license or
+restriction was identified in the [pinned upstream README](https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/readme.md)
+or [pretrained-model README](https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/experiments/pretrained_models/README.md);
+this is not an explicit statement of a separate
+weights license. The converted weights are bundled in the repository, outside
+the Python module, so a repository clone needs no upstream checkpoint download.
 
 ## Dependencies
 

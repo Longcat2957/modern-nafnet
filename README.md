@@ -37,7 +37,7 @@ Transformers·ModelOpt `[all]`·BasicSR은 프로젝트 의존성이 아니다.
 ```json
 {
   "data": {"path": "data/deblur"},
-  "training": {"checkpoint": "artifacts/checkpoints/NAFNet-GoPro-width32.pth"}
+  "training": {"checkpoint": "weights/nafnet-gopro-width32.pt"}
 }
 ```
 
@@ -67,7 +67,7 @@ config 없이 경로를 바로 지정할 수도 있다. GoPro의 `train/<sequenc
 
 ```bash
 uv run --locked --extra train modern-nafnet train \
-  --data data/GoPro --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth
+  --data data/GoPro --checkpoint weights/nafnet-gopro-width32.pt
 ```
 
 폴더명이 다르면 같은 config 안에서 `data.train/val/test/calibration`만 바꾼다.
@@ -81,7 +81,7 @@ sharp 원본만 있다면 `data/Clean/train/`에 이미지를 넣고 합성 blur
 
 ```bash
 uv run --locked --extra train modern-nafnet train \
-  --data data/Clean --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
+  --data data/Clean --checkpoint weights/nafnet-gopro-width32.pt \
   --synthetic-blur --num-workers 2
 ```
 
@@ -103,20 +103,25 @@ CLI에 명시한 값만 config를 덮어쓰며 `--no-amp`, `--no-synthetic-blur`
 
 ## 모델 실행과 학습
 
-공식 GoPro width32 체크포인트를 upstream 링크에서 받아 `artifacts/checkpoints/`에 둔다.
-현재 로컬 검증 파일의 SHA-256은
-`19394e6155d12ef6371d1d57496f87f0ec88f92bdffa27c0792690722d5d1a5c`다.
+[`weights/nafnet-gopro-width32.pt`](weights/nafnet-gopro-width32.pt)는 저장소에 포함되어
+clone 후 별도 upstream 다운로드 없이 사용한다. 공식 GoPro width32 `.pth`의 가중치
+값·dtype을 FP32 그대로 보존하고 `state_dict`, `config.model`, `tlc_kernels`,
+`provenance`를 담은 자체 `.pt`로 포장했다. 재학습·양자화하지 않았다.
+원본 `.pth`의 SHA-256은
+`19394e6155d12ef6371d1d57496f87f0ec88f92bdffa27c0792690722d5d1a5c`이며,
+변환본의 checksum과 출처·라이선스는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 기록한다.
 raw state dict, 공식 `params`, 자체 `state_dict`는 `strict=True`로 읽으며
 키 재매핑으로 구조 차이를 숨기지 않는다.
+`artifacts/`에는 학습 체크포인트·복원 이미지·ONNX·평가 기록 등 실행으로 생성한 결과만 둔다.
 
 ```bash
 uv run --locked --extra train modern-nafnet infer \
-  --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
+  --checkpoint weights/nafnet-gopro-width32.pt \
   --input data/blur.png --output artifacts/restored.png
 
 uv run --locked --extra train modern-nafnet train \
   --config configs/train.json \
-  --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth
+  --checkpoint weights/nafnet-gopro-width32.pt
 ```
 
 학습은 원본 PSNRLoss, AdamW(weight decay 0), cosine schedule을 사용한다.
@@ -132,7 +137,7 @@ QAT 설정에는 `data.path/calibration`, `export.shape`,
 ```bash
 uv run --locked --extra qat modern-nafnet qat \
   --config configs/train.json \
-  --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth --steps 0
+  --checkpoint weights/nafnet-gopro-width32.pt --steps 0
 
 uv run --locked --extra qat modern-nafnet qat \
   --config configs/train.json --checkpoint artifacts/train/ptq.pt
@@ -155,7 +160,7 @@ ModelOpt INT8는 symbolic Q/DQ를 지원하는 legacy exporter를 명시적으�
 
 ```bash
 uv run --locked --extra export modern-nafnet export \
-  --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
+  --checkpoint weights/nafnet-gopro-width32.pt \
   --height 256 --width 256 --output artifacts/nafnet-fp32.onnx
 
 uv run --locked --extra export --extra qat modern-nafnet export \
@@ -182,7 +187,7 @@ TorchMetrics의 RGB 2D SSIM과 혼용하지 않는다. PSNR 무한대는 표준 
 
 ```bash
 uv run --locked --extra train modern-nafnet eval \
-  --checkpoint artifacts/checkpoints/NAFNet-GoPro-width32.pth \
+  --checkpoint weights/nafnet-gopro-width32.pt \
   --data data/GoPro --split test --output artifacts/evaluation.json
 ```
 
@@ -192,10 +197,12 @@ inference는 PNG 등 이미지와 `.json` 기록을 남기며 입력·체크포�
 
 pytest는 CLI/config, paired 정렬·seed·range, loss·metric, 모델 forward/gradient,
 체크포인트 복원, 작은 학습 재개, ModelOpt calibration/backward, FP/QDQ ONNX→ONNX Runtime
-출력 동등성을 검증한다. upstream oracle은 고정 commit의 별도 개발 snapshot을 사용한다.
-`artifacts/reference/NAFNet/<commit>/`가 없으면 oracle 비교는 명시적으로 skip하며,
-자급 가능한 fixture 검증은 실행한다. 공식 체크포인트도 없는 경우 관련 oracle 테스트는 skip한다.
-snapshot과 가중치는 Git 및 설치 패키지에 포함하지 않는다.
+출력 동등성을 검증한다. upstream oracle은 고정 commit의
+`tests/reference/NAFNet/<UPSTREAM_COMMIT>/`에 Git으로 보존한 개발 snapshot을 사용한다.
+이 원본 코드는 테스트 전용이며 production 모델·runtime에서 import하지 않는다.
+snapshot 또는 제공 체크포인트가 없는 경우 관련 oracle 비교는 명시적으로 skip하며,
+자급 가능한 fixture 검증은 실행한다. snapshot과 가중치는 Git 저장소에 포함하지만
+설치 Python 패키지에는 포함하지 않는다.
 
 **실제 데이터 학습·GoPro 품질 재현·Orin 엔진 빌드·FPS/지연/전력 측정은 아직 수행하지 않았다.**
 성능 평가는 모델 학습/QAT 이후 별도 단계로 진행한다. 목표 해상도·FPS·전력 모드는

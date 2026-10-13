@@ -37,6 +37,8 @@
 ├── .python-version
 ├── .gitignore
 ├── configs/default.json
+├── configs/train.json
+├── weights/nafnet-gopro-width32.pt  # 원본 FP32 가중치·설정·출처를 담은 배포 체크포인트
 ├── src/modern_nafnet/
 │   ├── __init__.py
 │   ├── cli.py                # Typer app·얇은 명령·main()
@@ -68,6 +70,7 @@
 │       ├── quality.py        # 동일 데이터·전처리의 backend 품질 평가
 │       └── benchmark.py      # engine/end-to-end 측정
 └── tests/
+    └── reference/NAFNet/<UPSTREAM_COMMIT>/  # Git에 포함하는 개발 검증용 upstream oracle
 ```
 
 - 각 폴더는 책임과 import 경계다. 모델·데이터 계층은 CLI·학습·배포 workflow를 import하지 않는다. 평가의 backend 연결은 `quality.py`에 두고 모델을 수정하지 않는다. 공통 코드를 거대한 `utils/`에 모으지 않는다.
@@ -78,7 +81,7 @@
 - `pyproject.toml`의 CLI entry point는 `modern-nafnet = "modern_nafnet.cli:main"`으로 둔다. `main()`은 Typer app을 호출하며 `@app.command()`로 x86의 `train/qat/export/infer/eval`을 필요한 순서대로 등록한다. Orin은 우선 네이티브 `trtexec` 명령을 README에 남기며, 자체 runner가 필요한 경우에만 `build/infer/bench`를 확장한다. 루트 callback을 두어 명령이 하나인 초기 단계에도 `modern-nafnet infer` 형태를 유지한다. `uv run --locked modern-nafnet --help`로 진입한다.
 - Typer의 type hint·`Annotated`·`Path` 등으로 인자/옵션과 기본 경로 검증을 선언한다. 명령 함수는 CLI 타입을 실행 설정으로 연결하는 얇은 경계로 유지하며 모델·학습·평가 함수에는 Typer 의존성을 전파하지 않는다. `no_args_is_help=True`, `pretty_exceptions_show_locals=False`를 사용한다. SDK import·설정 읽기·데이터 확인은 실제 명령 실행에서 수행한다.
 - `configs/default.json`에 데이터·모델·학습·양자화·export·runtime·평가·benchmark 설정을 둔다. 사용자는 필요한 값만 담은 짧은 JSON config를 작성하며 기본값은 병합한다. 데이터 입력용 manifest는 사용하지 않는다. `data.path`를 루트로 두고 `data.train/val/test/calibration` 폴더를 지정한다. CLI `train/qat/eval --data`는 루트를 override하며 `eval --split val|test`로 평가 폴더를 고른다. JSON을 override하는 CLI 옵션의 미지정 기본값은 `None`으로 두고 `None`이 아닌 값만 병합한다. `bool | None`으로 미지정과 명시적 `False`를 구분하고 `0`/`False`를 truthiness로 누락하지 않는다. `data.path`와 CLI 경로는 CWD, split 경로는 `data.path` 기준이다. 해상도·FPS·전력 모드의 미정 값은 `null`로 둔다.
-- 개발 도구는 uv의 `dev` dependency group으로 관리한다. `.gitignore`에는 `/.venv/`, `/data/`, `/artifacts/`로 저장소 루트의 작업 산출물만 제외한다. `data/` 패턴으로 `src/modern_nafnet/data/` 패키지까지 제외하지 않는다. 테스트 파일은 해당 단계의 검증에 필요한 경우에만 추가한다.
+- 개발 도구는 uv의 `dev` dependency group으로 관리한다. `.gitignore`에는 `/.venv/`, `/data/`, `/artifacts/`로 저장소 루트의 작업 산출물만 제외한다. `artifacts/`에는 실행으로 생성한 결과만 두며, 제공 가중치는 `weights/`, 개발 oracle은 `tests/reference/`에 두고 Git에 포함한다. `data/` 패턴으로 `src/modern_nafnet/data/` 패키지까지 제외하지 않는다. 테스트 파일은 해당 단계의 검증에 필요한 경우에만 추가한다.
 
 ## 라이브러리 선정과 의존성 프로필
 
@@ -118,6 +121,7 @@
 ## 모델 기준
 
 - 출처: [공식 NAFNet 리포](https://github.com/megvii-research/NAFNet). 가져온 upstream commit과 체크포인트 SHA-256을 기록하고 원본 라이선스·저작권 표시를 보존한다. NAFNet은 MIT, 포함된 BasicSR 부분은 Apache 2.0이다.
+- `weights/nafnet-gopro-width32.pt`를 리포에 포함해 별도 upstream 다운로드 없이 사용한다. 공식 `.pth`의 모든 가중치 값·dtype을 FP32 그대로 보존하고 `state_dict`, `config.model`, `tlc_kernels`, `provenance`를 담은 자체 체크포인트로 포장한다. 재학습·양자화하지 않으며, 원본과 변환본의 SHA-256 및 체크포인트 출처·라이선스를 프로젝트 코드와 구분해 `THIRD_PARTY_NOTICES.md`에 기록한다. `configs/train.json`은 이 파일을 초기 가중치로 사용한다.
 - 공개 GoPro 기준은 **32.8705 dB / SSIM 0.9606**이다. 이는 원본 부동소수점 모델 수치이며 INT8 결과가 아니다.
 - 공식 width32 설정을 유지한다: `img_channel=3`, `width=32`, `enc_blk_nums=[1,1,1,28]`, `middle_blk_num=1`, `dec_blk_nums=[1,1,1,1]`.
 - 공개 학습·평가 설정의 `NAFNetLocal`/TLC를 보존한다. `train_size=(1,3,256,256)`, `fast_imp=False`를 기준으로 하고, RGB·NCHW·입력 범위 `[0,1]`, 원본의 16 배수 zero padding과 출력 crop을 유지한다.
@@ -129,7 +133,7 @@
 ## 현대 PyTorch 재이식 원칙
 
 - production 모델은 공식 NAFNet/BasicSR 파일을 통째로 복사하거나 BasicSR을 runtime 의존성으로 가져오지 않는다. 구조·연산 순서·학습 수식·TLC 동작을 참조해 현재 안정판 PyTorch의 표준 연산으로 구현한다. 참조 upstream commit과 파일별 변경 이유는 `THIRD_PARTY_NOTICES.md`에 기록하며 재이식에서도 출처·원래 고지를 보존한다.
-- 공식 upstream snapshot은 개발 검증용 reference로 분리해 사용하고 production 모델이 이를 import하지 않게 한다. 공식 checkpoint는 새 모델에 `strict=True`로 load한다. 모듈/parameter 이름과 shape를 유지하고 편의를 위한 키 재매핑·`strict=False`로 구조 차이를 숨기지 않는다.
+- 공식 upstream snapshot은 `tests/reference/NAFNet/<UPSTREAM_COMMIT>/`에 Git으로 보존하는 개발 검증용 oracle이다. production 모델·runtime은 이를 import하지 않는다. 공식 checkpoint는 새 모델에 `strict=True`로 load한다. 모듈/parameter 이름과 shape를 유지하고 편의를 위한 키 재매핑·`strict=False`로 구조 차이를 숨기지 않는다.
 - LayerNorm2d는 채널 mean·biased variance(`correction=0`)의 표준 autograd 연산 또는 NCHW → NHWC → `F.layer_norm(..., (C,), weight, bias, eps=1e-6)` → NCHW로 표현할 수 있다. NCHW에 `nn.LayerNorm(C)`를 직접 적용하지 않는다. 원본 forward와 입력/weight/bias gradient 동등성 및 export를 확인해 최소 구현을 선택한다.
 - TLC의 누적·slice·replicate padding은 표준 PyTorch 연산으로 재표현하고 필요한 경우 비제자리 `cumsum`을 사용한다. 원본 kernel 초기화·분기·출력 crop은 유지한다. custom autograd라는 이유만으로 원본이 비호환이라고 단정하지 않으며, 표준 연산 경로가 검증을 통과하면 production에서 별도 backward 구현을 두지 않는다.
 - FP32 동등성을 먼저 확보한다. 혼합정밀도 학습은 현재 `torch.amp.autocast(device_type="cuda", ...)`와 `torch.amp.GradScaler("cuda", ...)`를 사용하고 LayerNorm 통계·TLC 누적·손실의 dtype을 확인한다. inference는 `model.eval()`과 `torch.inference_mode()`를 사용한다.

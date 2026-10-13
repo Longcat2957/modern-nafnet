@@ -1,0 +1,2 @@
+# Preserve the pinned upstream oracle byte for byte, including its whitespace.
+tests/reference/** -text -whitespace

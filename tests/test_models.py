@@ -11,6 +11,8 @@ import pytest
 torch = pytest.importorskip("torch", reason="Install the train extra for model tests")
 from torch.nn import functional as F  # noqa: E402
 
+from modern_nafnet.artifacts import sha256  # noqa: E402
+from modern_nafnet.config import DEFAULT_CONFIG  # noqa: E402
 from modern_nafnet.models.layers import LayerNorm2d  # noqa: E402
 from modern_nafnet.models.nafnet import (  # noqa: E402
     UPSTREAM_COMMIT,
@@ -23,6 +25,7 @@ from modern_nafnet.models.nafnet import (  # noqa: E402
 from modern_nafnet.models.tlc import LocalAvgPool2d  # noqa: E402
 
 TINY = dict(width=2, enc_blk_nums=(1, 1), middle_blk_num=1, dec_blk_nums=(1, 1))
+BUNDLED_CHECKPOINT = Path(__file__).resolve().parents[1] / "weights/nafnet-gopro-width32.pt"
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +33,7 @@ def upstream():
     """Load the pinned, unmodified development oracle without installing BasicSR."""
     root = (
         Path(__file__).resolve().parents[1]
-        / "artifacts"
+        / "tests"
         / "reference"
         / "NAFNet"
         / UPSTREAM_COMMIT
@@ -60,11 +63,9 @@ def upstream():
 
 @pytest.fixture(scope="module")
 def official_models(upstream):
-    checkpoint = (
-        Path(__file__).resolve().parents[1] / "artifacts/checkpoints/NAFNet-GoPro-width32.pth"
-    )
+    checkpoint = BUNDLED_CHECKPOINT
     if not checkpoint.is_file():
-        pytest.skip(f"Official GoPro width32 checkpoint is absent: {checkpoint}")
+        pytest.skip(f"Bundled GoPro width32 checkpoint is absent: {checkpoint}")
     if not torch.cuda.is_available():
         pytest.skip("Official width32 oracle comparison requires the CUDA training host")
     with torch.device("cuda"):
@@ -245,6 +246,32 @@ def test_strict_checkpoint_supported_formats(tmp_path, container):
     torch.save(weights, path)
     with pytest.raises(RuntimeError, match="Missing key"):
         load_checkpoint(rebuilt, path)
+
+
+def test_bundled_checkpoint_preserves_fp32_weights_and_source_metadata():
+    assert BUNDLED_CHECKPOINT.is_file(), "The published FP32 checkpoint must be included"
+    assert sha256(BUNDLED_CHECKPOINT) == (
+        "f6abb1b16853670e8a03bc0842e4d948f0276a1110999c5886fa87f73cb760cb"
+    )
+    payload = torch.load(BUNDLED_CHECKPOINT, map_location="cpu", weights_only=True)
+    weights = payload["state_dict"]
+    assert len(weights) == 664
+    assert "modelopt_state" not in payload
+    assert all(tensor.dtype == torch.float32 for tensor in weights.values())
+    model = build_model(DEFAULT_CONFIG["model"])
+    metadata = load_checkpoint(model, BUNDLED_CHECKPOINT)
+    check_checkpoint_metadata(model, metadata, DEFAULT_CONFIG["model"])
+    for name, tensor in model.state_dict().items():
+        assert torch.equal(tensor.view(torch.int32), weights[name].view(torch.int32))
+    provenance = metadata["provenance"]
+    assert provenance["repository"] == "https://github.com/megvii-research/NAFNet"
+    assert provenance["commit"] == UPSTREAM_COMMIT
+    assert provenance["source_url"] == (
+        "https://drive.google.com/file/d/1Fr2QadtDCEXg6iwWX8OzeZLbHOx2t5Bj/view"
+    )
+    assert provenance["source_sha256"] == (
+        "19394e6155d12ef6371d1d57496f87f0ec88f92bdffa27c0792690722d5d1a5c"
+    )
 
 
 @pytest.mark.reference

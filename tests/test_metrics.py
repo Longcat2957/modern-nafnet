@@ -54,7 +54,7 @@ def test_metrics_reject_misalignment_and_unrounded_float():
 def test_metrics_match_pinned_upstream(monkeypatch, device):
     path = (
         Path(__file__).resolve().parents[1]
-        / "artifacts/reference/NAFNet/2b4af71ebe098a92a75910c233a3965a3e93ede4"
+        / "tests/reference/NAFNet/2b4af71ebe098a92a75910c233a3965a3e93ede4"
         / "basicsr/metrics/psnr_ssim.py"
     )
     if not path.is_file():

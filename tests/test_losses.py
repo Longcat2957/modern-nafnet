@@ -54,7 +54,7 @@ def test_half_loss_reduction_does_not_overflow_or_underflow():
 def test_loss_forward_and_gradient_match_pinned_upstream():
     path = (
         Path(__file__).resolve().parents[1]
-        / "artifacts/reference/NAFNet/2b4af71ebe098a92a75910c233a3965a3e93ede4"
+        / "tests/reference/NAFNet/2b4af71ebe098a92a75910c233a3965a3e93ede4"
         / "basicsr/models/losses/losses.py"
     )
     if not path.is_file():
