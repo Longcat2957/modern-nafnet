@@ -68,6 +68,56 @@ def test_workflow_status_does_not_corrupt_json_stdout(monkeypatch):
     assert result.stderr == "library status\n"
 
 
+def test_module_entrypoint_exposes_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "modern_nafnet.cli", "--help"], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert "train" in result.stdout
+
+
+@pytest.mark.parametrize("command", ["train", "qat"])
+@pytest.mark.parametrize("rank", ["0", "1"])
+def test_distributed_training_only_primary_rank_prints_result(monkeypatch, command, rank):
+    import types
+
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    monkeypatch.setenv("RANK", rank)
+    stub = types.ModuleType("modern_nafnet.training.loop")
+
+    def operation(config, **kwargs):
+        print(f"rank {rank} library status")
+        return {"step": 1}
+
+    stub.run_train = operation
+    monkeypatch.setitem(sys.modules, "modern_nafnet.training.loop", stub)
+    result = runner.invoke(app, [command])
+    assert result.exit_code == 0, result.output
+    assert result.stderr == f"rank {rank} library status\n"
+    if rank == "0":
+        assert json.loads(result.stdout) == {"step": 1}
+    else:
+        assert result.stdout == ""
+
+
+def test_distributed_nonprimary_rank_still_reports_errors(monkeypatch):
+    import types
+
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    monkeypatch.setenv("RANK", "1")
+    stub = types.ModuleType("modern_nafnet.training.loop")
+
+    def operation(config):
+        raise RuntimeError("worker failure")
+
+    stub.run_train = operation
+    monkeypatch.setitem(sys.modules, "modern_nafnet.training.loop", stub)
+    result = runner.invoke(app, ["train"])
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "worker failure" in result.stderr
+
+
 def test_qat_cli_checkpoint_overrides_quantization_source(tmp_path, monkeypatch):
     import types
 

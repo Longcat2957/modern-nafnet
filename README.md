@@ -22,7 +22,7 @@ uv run --locked ruff format --check .
 개발 group에 있다. 전체 설치가 필요 없으면 `uv sync --locked --extra train`처럼
 프로필을 지정한다. 각 명령은 사용하는 프로필을 `uv run --locked --extra ...`에 명시한다.
 
-Linux x86_64의 torch는 명시적인 공식 `cu132` 인덱스를 사용한다. 현재 검증 환경은
+Linux x86_64의 torch는 명시적인 공식 `cu132` 인덱스를 사용한다. 초기 검증 환경은
 PyTorch 2.14.1+cu132 / CUDA 13.2, ModelOpt 0.47.0, Python 3.12.14,
 RTX 5000 Ada Generation Laptop GPU다. ModelOpt 0.47의 PyTorch 모듈은
 base metadata에 없는 `requests`·`huggingface-hub`를 import하므로 `qat`에 추가했다.
@@ -127,12 +127,53 @@ uv run --locked --extra train modern-nafnet train \
 학습은 원본 PSNRLoss, AdamW(weight decay 0), cosine schedule을 사용한다.
 `training.steps/batch_size/lr/seed/num_workers/device/amp/output_dir`로 제어한다.
 AMP는 `torch.amp`를 사용하고 손실·LayerNorm 통계·TLC 누적의 정밀도를 관리한다.
+`training.steps`와 scheduler는 성공한 optimizer update만 센다. AMP gradient overflow가
+발생하면 해당 update를 건너뛰고 GradScaler가 scale을 낮춘다. 건너뛴 횟수는
+체크포인트와 결과 JSON의 `amp_skipped_steps`에 기록한다.
+
+두 개 이상 CUDA GPU를 사용하는 학습은 `torchrun`으로 시작한다. GPU마다 프로세스 하나를
+실행하고 NCCL `DistributedDataParallel`(DDP)로 gradient를 평균한다. 현재 PC의 RTX 4090
+두 장을 사용하려면 다음과 같이 실행한다.
+
+```bash
+uv run --locked --extra train torchrun \
+  --standalone --nnodes=1 --nproc-per-node=2 --module modern_nafnet.cli train \
+  --config configs/train.json
+
+uv run --locked --extra qat torchrun \
+  --standalone --nnodes=1 --nproc-per-node=2 --module modern_nafnet.cli qat \
+  --config configs/train.json
+```
+
+`--nproc-per-node`는 사용할 GPU 수에 맞춘다. `training.device`는 `cuda`로 두며 각
+프로세스는 `LOCAL_RANK`의 GPU를 사용한다. 일반 `modern-nafnet train/qat` 명령은
+단일 GPU를 사용한다. `training.batch_size`와 `training.num_workers`는 **GPU당 값**이다.
+예를 들어 batch size 4에 GPU 두 장이면 전체 batch size는 8이다. 마지막 batch가 작으면
+해당 step의 전체 batch size도 작아진다. GPU 수를 늘려도 learning rate나 `training.steps`를
+자동 조정하지 않으므로 동일한 학습량을 비교할 때 전체 batch size와 optimizer step 수를
+함께 맞춘다. DDP에서 DataLoader worker를 사용하면 CUDA/NCCL 초기화 이후의 fork를
+피하도록 worker를 `spawn`으로 시작한다.
+
+`DistributedSampler`는 epoch마다 데이터를 섞어 GPU별로 나눈다. 샘플 수가 GPU 수로
+나누어떨어지지 않으면 모든 GPU의 step 수를 맞추기 위해 일부 샘플을 epoch 끝에 중복한다.
+체크포인트와 결과 파일, 정상 stdout JSON은 rank 0만 기록하고 rank별 오류는 stderr에 남긴다.
+증강·DataLoader RNG는 rank별로 분리해 저장하며 DDP checkpoint의 `--resume`에는 같은
+GPU 수(world size)가 필요하다. 단일 GPU와 DDP 사이에 옮길 때는 `--checkpoint`로
+가중치 fine-tune을 시작한다. 정확한 증강 replay 범위는 아래의 epoch 경계 정책과 같다.
+
+2026-10-14에 RTX 4090 두 장으로 공식 width32 모델의 256×256·GPU당 batch 1 DDP
+smoke test를 수행했다. FP32와 ModelOpt QAT(calibration·quantizer 678개)는 각각
+optimizer update 2회를 완료했다. AMP는 초기 overflow 2회를 건너뛴 뒤 update 2회를
+완료했다. 기록은 `artifacts/ddp-smoke-20261014/`에 있다. 생성 이미지로 실행 경로를
+확인한 테스트이며 GoPro 품질, 실제 배포 calibration이나 학습 속도를 평가한 결과는 아니다.
 
 ModelOpt INT8는 calibration 후 scale을 고정해 학습한다. Conv weight는 per-channel,
 activation은 per-tensor이고 attention의 `sca.*` quantizer는 제외한다.
 QAT 설정에는 `data.path/calibration`, `export.shape`,
 `quantization.calibration_batches`가 필요하다. 학습에는 paired 데이터 또는
 합성 blur를 켠 sharp-only 데이터를 사용한다.
+DDP의 최초 QAT 실행에서는 각 rank가 같은 순서의 실제 calibration 이미지를 사용하고,
+DDP 초기화 때 rank 0의 calibrated buffer를 동기화한 뒤 고정 scale로 학습한다.
 
 ```bash
 uv run --locked --extra qat modern-nafnet qat \

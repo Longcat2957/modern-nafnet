@@ -1,6 +1,7 @@
 """Thin Typer commands; optional ML dependencies load on execution only."""
 
 import json
+import os
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -24,11 +25,16 @@ def callback():
     """NAFNet training, evaluation and ONNX export on an x86 CUDA host."""
 
 
-def _run(operation, extra: str):
+def _run(operation, extra: str, *, distributed: bool = False):
     try:
         with redirect_stdout(sys.stderr):
             result = operation()
-        typer.echo(json.dumps(json_safe(result), allow_nan=False))
+        if (
+            not distributed
+            or int(os.environ.get("WORLD_SIZE", "1")) == 1
+            or int(os.environ.get("RANK", "0")) == 0
+        ):
+            typer.echo(json.dumps(json_safe(result), allow_nan=False))
     except ModuleNotFoundError as exc:
         if (exc.name or "").split(".")[0] not in {
             "torch",
@@ -64,7 +70,7 @@ def train(
     ] = None,
     num_workers: Annotated[int | None, typer.Option(min=0)] = None,
 ):
-    """Fine-tune a floating point model using paired images."""
+    """Fine-tune a floating point model; torchrun enables multi-GPU DDP."""
 
     def execute():
         from modern_nafnet.training.loop import run_train
@@ -85,7 +91,7 @@ def train(
         )
         return run_train(settings)
 
-    _run(execute, "--extra train")
+    _run(execute, "--extra train", distributed=True)
 
 
 @app.command()
@@ -101,7 +107,7 @@ def qat(
     ] = None,
     num_workers: Annotated[int | None, typer.Option(min=0)] = None,
 ):
-    """Calibrate INT8 and fine-tune; --steps 0 saves a PTQ checkpoint."""
+    """Calibrate INT8 and fine-tune, including torchrun DDP; --steps 0 saves PTQ."""
 
     def execute():
         from modern_nafnet.training.loop import run_train
@@ -122,7 +128,7 @@ def qat(
         )
         return run_train(settings, qat=True)
 
-    _run(execute, "--extra qat")
+    _run(execute, "--extra qat", distributed=True)
 
 
 @app.command(name="export")
@@ -227,3 +233,7 @@ def evaluate(
 
 def main():
     app()
+
+
+if __name__ == "__main__":
+    main()
