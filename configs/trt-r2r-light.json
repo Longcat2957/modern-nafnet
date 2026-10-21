@@ -1,0 +1,58 @@
+{
+  "architecture": "trt-r2r-light",
+  "trt_r2r_light": {
+    "tasks": [
+      "denoise",
+      "derain",
+      "dehaze",
+      "deblur",
+      "lowlight"
+    ],
+    "slots_per_task": 8,
+    "query_dim": 64,
+    "channels": [
+      32,
+      64,
+      128,
+      192
+    ],
+    "encoder_blocks": [
+      1,
+      1,
+      2,
+      2
+    ],
+    "decoder_blocks": [
+      1,
+      1,
+      1
+    ],
+    "bank_enabled": true,
+    "prior_scale_init": 0.1
+  },
+  "data": {
+    "path": "data/restoration",
+    "crop_size": 256
+  },
+  "training": {
+    "checkpoint": null,
+    "output_dir": "artifacts/trt-r2r-light/train",
+    "steps": 100000,
+    "batch_size": 4,
+    "lr": 0.0001
+  },
+  "quantization": {
+    "calibration_batches": 512
+  },
+  "export": {
+    "output": "artifacts/trt-r2r-light/model-int8.onnx",
+    "shape": [
+      1,
+      3,
+      256,
+      256
+    ],
+    "opset": 18,
+    "quantized": true
+  }
+}

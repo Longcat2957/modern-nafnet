@@ -11,6 +11,7 @@
 ## 도구와 환경
 
 - **Python 패키지·가상환경·실행은 반드시 [uv](https://docs.astral.sh/uv/guides/projects/)로 관리한다.** 의존성 변경은 `uv add`/`uv remove`, 환경 재현은 `uv sync --locked`, 실행·테스트는 `uv run --locked`를 사용한다. `pyproject.toml`, `uv.lock`, `.python-version`을 커밋하고 lockfile은 직접 편집하지 않는다.
+- 일반 개발·학습·평가·검증 루틴에서 `uv build`나 wheel/sdist 생성을 실행하지 않는다. 배포용 Python 패키지를 명시적으로 요청한 경우에만 생성한다.
 - PyTorch CUDA wheel과 NVIDIA 공식 Python 패키지의 인덱스·소스·플랫폼 조건은 `pyproject.toml`에 명시한다. 개별 `pip install`로 우회하지 않는다. Orin의 JetPack CUDA·TensorRT 네이티브 SDK는 시스템 설치를 사용한다. Orin Python runner가 필요한 경우에만 uv 환경에서 호환 바인딩과 CUDA 동작을 확인한다.
 - 구현 시점의 **최신 안정판 PyTorch와 NVIDIA ModelOpt**를 우선한다. nightly는 사용하지 않는다. CUDA·ModelOpt·ONNX exporter 호환성을 확인한 뒤 검증된 버전을 고정한다.
 - 기본 배포 경로는 **x86 CUDA 서버/워크스테이션에서 학습·calibration·QAT → ONNX export → ONNX를 Orin으로 전달 → 대상 Orin에서 TensorRT 엔진 build → 엔진 infer/bench**다. x86의 `export`와 Orin의 `build/infer/bench`를 분리한다. Jetson PyTorch는 추가 비교가 필요한 경우에만 NVIDIA 공식 호환 패키지·컨테이너를 검토한다.

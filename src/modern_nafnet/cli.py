@@ -1,6 +1,7 @@
 """Thin Typer commands; optional ML dependencies load on execution only."""
 
 import json
+import os
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -21,14 +22,15 @@ DataRoot = Annotated[Path | None, typer.Option(exists=True, file_okay=False)]
 
 @app.callback()
 def callback():
-    """NAFNet training, evaluation and ONNX export on an x86 CUDA host."""
+    """NAFNet and TRT-R2R-Light restoration on an x86 CUDA host."""
 
 
 def _run(operation, extra: str):
     try:
         with redirect_stdout(sys.stderr):
             result = operation()
-        typer.echo(json.dumps(json_safe(result), allow_nan=False))
+        if int(os.environ.get("RANK", "0")) == 0:
+            typer.echo(json.dumps(json_safe(result), allow_nan=False))
     except ModuleNotFoundError as exc:
         if (exc.name or "").split(".")[0] not in {
             "torch",
@@ -64,7 +66,7 @@ def train(
     ] = None,
     num_workers: Annotated[int | None, typer.Option(min=0)] = None,
 ):
-    """Fine-tune a floating point model using paired images."""
+    """Train TRT-R2R-Light or fine-tune NAFNet using paired images."""
 
     def execute():
         from modern_nafnet.training.loop import run_train
@@ -202,7 +204,7 @@ def evaluate(
     device: Annotated[str | None, typer.Option()] = None,
     quantized: Annotated[bool | None, typer.Option("--quantized/--no-quantized")] = None,
 ):
-    """Evaluate paired images using the official uint8 GoPro protocol."""
+    """Evaluate restoration pairs with imagewise uint8 RGB PSNR/SSIM."""
 
     def execute():
         from modern_nafnet.evaluation.quality import run_evaluate

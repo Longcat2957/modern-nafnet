@@ -7,6 +7,126 @@ from typing import Any
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp", ".ppm"}
 ROLES = {"blur", "sharp"}
+RESTORATION_TASKS = {"denoise", "derain", "dehaze", "deblur", "lowlight"}
+
+
+def task_label(task: str, tasks: list[str] | tuple[str, ...]) -> list[float]:
+    """Encode a folder name against the checkpoint's fixed degradation order."""
+    if not tasks or len(set(tasks)) != len(tasks) or set(tasks) - RESTORATION_TASKS:
+        raise ValueError("tasks must be unique supported degradation names")
+    parts = task.split("+")
+    if task == "clean":
+        return [0.0] * len(tasks)
+    if len(set(parts)) != len(parts) or set(parts) - set(tasks):
+        raise ValueError(f"Unknown or duplicate restoration task: {task}")
+    return [float(name in parts) for name in tasks]
+
+
+def load_restoration_samples(
+    source: str | Path, tasks: list[str] | tuple[str, ...], *, calibration: bool = False
+) -> list[dict[str, Any]]:
+    """Index task/input-target folders once; clean targets are also their inputs."""
+    source = Path(source).resolve()
+    if not source.is_dir():
+        if not source.exists():
+            raise FileNotFoundError(f"Data source does not exist: {source}")
+        raise ValueError(f"Data source must be a directory: {source}")
+    task_label("clean", tasks)
+    labels, seen_labels = {}, set()
+    for folder in sorted(source.iterdir()):
+        if not folder.is_dir():
+            continue
+        label = task_label(folder.name, tasks)
+        key = tuple(label)
+        if key in seen_labels:
+            raise ValueError(f"Duplicate restoration task combination: {folder.name}")
+        seen_labels.add(key)
+        labels[folder.name] = label
+    indexed = {name: {"input": {}, "target": {}} for name in labels}
+    used = {"input": set(), "target": set()}
+    for path in sorted(source.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES:
+            continue
+        relative = path.relative_to(source)
+        parts = relative.parts
+        if len(parts) < 3 or parts[0] not in labels or parts[1] not in used:
+            raise ValueError(f"Unclassified image in restoration directory: {relative}")
+        task, role = parts[:2]
+        if calibration and role == "target":
+            continue
+        if any(part in used for part in parts[2:-1]):
+            raise ValueError(f"Ambiguous restoration image: {relative}")
+        if not calibration and task == "clean" and role != "target":
+            raise ValueError("Clean supervised data requires clean/target only; input=target")
+        name = Path(*parts[2:]).as_posix()
+        resolved = path.resolve()
+        if name in indexed[task][role] or resolved in used[role]:
+            raise ValueError(f"Duplicate {role} restoration image: {relative}")
+        indexed[task][role][name] = resolved
+        used[role].add(resolved)
+    samples = []
+    for task, roles in indexed.items():
+        inputs, targets = roles["input"], roles["target"]
+        if not calibration and task == "clean":
+            inputs = targets
+        if calibration:
+            if not inputs:
+                raise ValueError(f"Calibration task contains no input images: {task}")
+        else:
+            unmatched = set(inputs) ^ set(targets)
+            if unmatched:
+                name = min(unmatched)
+                missing = "target" if name in inputs else "input"
+                raise ValueError(f"Missing {missing} pair for {task}/{name}")
+            if not inputs:
+                raise ValueError(f"Restoration task contains no input/target pairs: {task}")
+        for name, path in sorted(inputs.items()):
+            sample = {
+                "name": f"{task}/{name}",
+                "task": task,
+                "task_label": labels[task],
+                "input": path,
+            }
+            if not calibration:
+                sample["target"] = targets[name]
+            samples.append(sample)
+    if not samples:
+        raise ValueError(f"Data directory contains no supported restoration images: {source}")
+    return samples
+
+
+def balanced_calibration_samples(
+    samples: list[dict[str, Any]], tasks: list[str] | tuple[str, ...], limit: int
+) -> list[dict[str, Any]]:
+    """Select real inputs round-robin, retaining clean and every present mixture."""
+    if type(limit) is not int or limit < 1:
+        raise ValueError("Calibration sample limit must be a positive integer")
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for sample in samples:
+        expected = task_label(sample["task"], tasks)
+        if sample["task_label"] != expected:
+            raise ValueError("Calibration task labels do not match the configured task order")
+        groups.setdefault(sample["task"], []).append(sample)
+    missing = (set(tasks) | {"clean"}) - set(groups)
+    if missing:
+        raise ValueError(
+            f"Calibration must cover every configured task and clean; missing "
+            f"single-task/clean folders {sorted(missing)}"
+        )
+    if limit < len(groups):
+        raise ValueError("Calibration sample limit must cover every task/clean/composite group")
+    groups = {
+        key: sorted(value, key=lambda sample: sample["name"])
+        for key, value in sorted(groups.items())
+    }
+    selected = []
+    for offset in range(max(map(len, groups.values()))):
+        for group in groups.values():
+            if offset < len(group):
+                selected.append(group[offset])
+                if len(selected) == limit:
+                    return selected
+    return selected
 
 
 def resolve_data_source(data: dict, split: str) -> Path:
@@ -102,14 +222,22 @@ def source_record(source: str | Path, samples: list[dict[str, Any]]) -> dict[str
     plain = [
         {
             "name": sample["name"],
-            **{key: str(sample[key]) for key in ("blur", "sharp") if key in sample},
+            **{
+                key: str(sample[key])
+                for key in ("blur", "sharp", "input", "target")
+                if key in sample
+            },
+            **{key: sample[key] for key in ("task", "task_label") if key in sample},
         }
         for sample in samples
     ]
     entries = []
     for sample in sorted(plain, key=lambda item: item["name"]):
         entry: dict[str, Any] = {"name": sample["name"]}
-        for key in ("blur", "sharp"):
+        for key in ("task", "task_label"):
+            if key in sample:
+                entry[key] = sample[key]
+        for key in ("blur", "sharp", "input", "target"):
             if key in sample:
                 path = Path(sample[key])
                 info = path.stat()

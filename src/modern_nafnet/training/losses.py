@@ -9,6 +9,7 @@ import math
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 
 class PSNRLoss(nn.Module):
@@ -42,3 +43,96 @@ class PSNRLoss(nn.Module):
         )
         mse = delta.square().mean(dim=(1, 2, 3))
         return self.loss_weight * self.scale * torch.log(mse + 1e-8).mean()
+
+
+class MultiTaskRestorationLoss(nn.Module):
+    """Pixel/edge/multiscale restoration, raw-logit BCE and clean identity."""
+
+    def __init__(
+        self,
+        charbonnier_eps: float = 0.001,
+        edge_weight: float = 0.05,
+        multiscale_weight: float = 0.1,
+        task_weight: float = 0.1,
+        clean_weight: float = 0.5,
+    ):
+        super().__init__()
+        values = (charbonnier_eps, edge_weight, multiscale_weight, task_weight, clean_weight)
+        if any(not math.isfinite(value) or value < 0 for value in values) or not charbonnier_eps:
+            raise ValueError(
+                "Restoration loss requires positive eps and nonnegative finite weights"
+            )
+        self.eps = charbonnier_eps
+        self.edge_weight, self.multiscale_weight = edge_weight, multiscale_weight
+        self.task_weight, self.clean_weight = task_weight, clean_weight
+
+    def _charbonnier(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return ((prediction - target).square() + self.eps**2).sqrt().mean()
+
+    def forward(
+        self,
+        prediction: torch.Tensor,
+        target: torch.Tensor,
+        inputs: torch.Tensor,
+        task_logits: torch.Tensor | None,
+        task_labels: torch.Tensor,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        if prediction.ndim != 4 or prediction.shape != target.shape or inputs.shape != target.shape:
+            raise ValueError("Restoration loss expects matching NCHW prediction, target and input")
+        if (
+            task_labels.ndim != 2
+            or task_labels.shape[0] != prediction.shape[0]
+            or task_labels.shape[1] < 1
+            or not torch.all((task_labels == 0) | (task_labels == 1))
+        ):
+            raise ValueError("Restoration loss expects binary [batch, tasks] multi-hot labels")
+        prediction, target, inputs = prediction.float(), target.float(), inputs.float()
+        zero = prediction.sum() * 0
+        pixel = self._charbonnier(prediction, target)
+        edge_terms = []
+        if prediction.shape[-1] > 1:
+            edge_terms.append(
+                self._charbonnier(
+                    prediction[..., 1:] - prediction[..., :-1],
+                    target[..., 1:] - target[..., :-1],
+                )
+            )
+        if prediction.shape[-2] > 1:
+            edge_terms.append(
+                self._charbonnier(
+                    prediction[..., 1:, :] - prediction[..., :-1, :],
+                    target[..., 1:, :] - target[..., :-1, :],
+                )
+            )
+        edge = sum(edge_terms) / len(edge_terms) if edge_terms else zero
+        scales = [scale for scale in (2, 4) if min(prediction.shape[-2:]) >= scale]
+        multiscale = (
+            sum(
+                self._charbonnier(F.avg_pool2d(prediction, scale), F.avg_pool2d(target, scale))
+                for scale in scales
+            )
+            / len(scales)
+            if scales
+            else zero
+        )
+        if task_logits is not None:
+            if task_logits.shape != task_labels.shape:
+                raise ValueError("Task logits and labels must have the same [batch, tasks] shape")
+            task = F.binary_cross_entropy_with_logits(task_logits.float(), task_labels.float())
+        else:
+            task = zero
+        clean_mask = task_labels.sum(dim=1) == 0
+        clean = (
+            (prediction[clean_mask] - inputs[clean_mask]).abs().mean() if clean_mask.any() else zero
+        )
+        restore = pixel + self.edge_weight * edge + self.multiscale_weight * multiscale
+        total = restore + self.task_weight * task + self.clean_weight * clean
+        return total, {
+            "total": total,
+            "restore": restore,
+            "charbonnier": pixel,
+            "edge": edge,
+            "multiscale": multiscale,
+            "task": task,
+            "clean": clean,
+        }

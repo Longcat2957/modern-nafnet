@@ -3,6 +3,17 @@
 프로젝트 자체 코드는 AGPL-3.0-only로 공개한다. 아래 원저작물의 고지와
 라이선스는 유지하며, 원문은 `licenses/NAFNet-BasicSR.txt`에 포함한다.
 
+## TRT-R2R-Light design attribution
+
+`models/trt_r2r_light.py` is an independent implementation of the local
+`TRT_R2R_LIGHT_IMPLEMENTATION.md` design, released as project code under
+AGPL-3.0-only. Its task-conditioned prototype retrieval concept is inspired by
+[Retrieve-to-Restore / R2R](https://github.com/cscxwang/R2R). The design document
+cites upstream revision `bf387d56095aaf4edc0b685f8ea58cce5c64c2fc` as its idea
+reference. No R2R source files, pretrained weights, teacher, or memory-bank
+artifacts are copied or distributed by this implementation. R2R's reported
+restoration results do not describe this new architecture.
+
 ## NAFNet / BasicSR reference
 
 - Repository: https://github.com/megvii-research/NAFNet

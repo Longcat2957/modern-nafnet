@@ -1,4 +1,5 @@
 {
+  "architecture": "nafnet",
   "model": {
     "img_channel": 3,
     "width": 32,
@@ -23,6 +24,46 @@
     ],
     "fast_imp": false
   },
+  "trt_r2r_light": {
+    "tasks": [
+      "denoise",
+      "derain",
+      "dehaze",
+      "deblur",
+      "lowlight"
+    ],
+    "slots_per_task": 8,
+    "query_dim": 64,
+    "channels": [
+      32,
+      64,
+      128,
+      192
+    ],
+    "encoder_blocks": [
+      1,
+      1,
+      2,
+      2
+    ],
+    "decoder_blocks": [
+      1,
+      1,
+      1
+    ],
+    "bank_enabled": true,
+    "prior_scale_init": 0.1
+  },
+  "restoration_loss": {
+    "charbonnier_eps": 0.001,
+    "edge_weight": 0.05,
+    "multiscale_weight": 0.1,
+    "task_weight": 0.1,
+    "clean_weight": 0.5
+  },
+  "task_sampling": {
+    "mode": "balanced"
+  },
   "data": {
     "path": null,
     "train": "train",
@@ -32,7 +73,10 @@
     "crop_size": 256,
     "synthetic_blur": {
       "enabled": false,
-      "blur_range": [3, 15]
+      "blur_range": [
+        3,
+        15
+      ]
     }
   },
   "training": {

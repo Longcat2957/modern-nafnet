@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 
 DEFAULT_CONFIG = {
+    "architecture": "nafnet",
     "model": {
         "img_channel": 3,
         "width": 32,
@@ -15,6 +16,24 @@ DEFAULT_CONFIG = {
         "train_size": [1, 3, 256, 256],
         "fast_imp": False,
     },
+    "trt_r2r_light": {
+        "tasks": ["denoise", "derain", "dehaze", "deblur", "lowlight"],
+        "slots_per_task": 8,
+        "query_dim": 64,
+        "channels": [32, 64, 128, 192],
+        "encoder_blocks": [1, 1, 2, 2],
+        "decoder_blocks": [1, 1, 1],
+        "bank_enabled": True,
+        "prior_scale_init": 0.1,
+    },
+    "restoration_loss": {
+        "charbonnier_eps": 0.001,
+        "edge_weight": 0.05,
+        "multiscale_weight": 0.1,
+        "task_weight": 0.1,
+        "clean_weight": 0.5,
+    },
+    "task_sampling": {"mode": "balanced"},
     "data": {
         "path": None,
         "train": "train",
@@ -68,7 +87,36 @@ def _validate_value(name: str, value) -> None:
     for part in name.split("."):
         default = default[part]
     key = name.rsplit(".", 1)[-1]
-    if name == "data.synthetic_blur.blur_range":
+    if name == "architecture":
+        if value not in ("nafnet", "trt-r2r-light"):
+            raise ValueError("Configuration architecture must be nafnet or trt-r2r-light")
+    elif name == "task_sampling.mode":
+        if value not in ("balanced", "proportional"):
+            raise ValueError("Configuration task_sampling.mode must be balanced or proportional")
+    elif name == "trt_r2r_light.tasks":
+        if (
+            not isinstance(value, list)
+            or not value
+            or any(
+                not isinstance(task, str)
+                or task not in ("denoise", "derain", "dehaze", "deblur", "lowlight")
+                for task in value
+            )
+            or len(set(value)) != len(value)
+        ):
+            raise ValueError("Configuration trt_r2r_light.tasks needs unique supported task names")
+    elif name.startswith("restoration_loss.") or name == "trt_r2r_light.prior_scale_init":
+        positive = name == "restoration_loss.charbonnier_eps"
+        if (
+            type(value) not in (int, float)
+            or not math.isfinite(value)
+            or value < 0
+            or (positive and value == 0)
+        ):
+            raise ValueError(
+                f"Configuration {name} must be finite and {'positive' if positive else 'nonnegative'}"
+            )
+    elif name == "data.synthetic_blur.blur_range":
         if (
             not isinstance(value, list)
             or len(value) != 2
@@ -122,6 +170,8 @@ def _validate_value(name: str, value) -> None:
             "batch_size",
             "opset",
             "calibration_batches",
+            "slots_per_task",
+            "query_dim",
         }
         if type(value) is not int or value < (1 if positive else 0):
             raise ValueError(
@@ -171,4 +221,45 @@ def load_config(path: Path | None = None, overrides: dict | None = None) -> dict
         _merge(config, document)
     if overrides:
         _merge(config, overrides, cli=True)
+    validate_trt_r2r_light_config(config["trt_r2r_light"])
+    if config["architecture"] == "trt-r2r-light":
+        if config["data"]["crop_size"] % 16:
+            raise ValueError(
+                "Configuration data.crop_size must be a multiple of 16 for trt-r2r-light"
+            )
+        shape = config["export"]["shape"]
+        if shape is not None and (shape[:2] != [1, 3] or any(size % 16 for size in shape[-2:])):
+            raise ValueError(
+                "Configuration export.shape must be [1,3,H,W] with H/W multiples of 16"
+            )
+        if config["data"]["synthetic_blur"]["enabled"]:
+            raise ValueError(
+                "Configuration synthetic_blur is only supported for NAFNet paired data"
+            )
     return config
+
+
+def validate_trt_r2r_light_config(options: dict) -> None:
+    """Validate fixed graph sizes without importing the ML dependencies."""
+    for key in ("tasks", "slots_per_task", "query_dim", "bank_enabled", "prior_scale_init"):
+        value = options[key]
+        if key == "tasks" and isinstance(value, tuple):
+            value = list(value)
+        _validate_value(f"trt_r2r_light.{key}", value)
+    channels = options["channels"]
+    if (
+        not isinstance(channels, (list, tuple))
+        or len(channels) != 4
+        or any(type(c) is not int or c <= 0 or c % 32 for c in channels)
+    ):
+        raise ValueError("Configuration trt_r2r_light.channels needs four positive multiples of 32")
+    for name, length in (("encoder_blocks", 4), ("decoder_blocks", 3)):
+        blocks = options[name]
+        if (
+            not isinstance(blocks, (list, tuple))
+            or len(blocks) != length
+            or any(type(count) is not int or count < 0 for count in blocks)
+        ):
+            raise ValueError(
+                f"Configuration trt_r2r_light.{name} needs {length} nonnegative counts"
+            )
